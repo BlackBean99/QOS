@@ -2,8 +2,8 @@
 
 ## Status
 
-Release verification — implementation, database, Git push and local production verification complete;
-protected remote hosting credential unavailable — 2026-09-01.
+Local MVP release automation in progress — implementation, database and Git push are complete; remote
+hosting is intentionally deferred until the MVP boundary changes — 2026-09-01.
 
 ## Purpose and observable outcome
 
@@ -31,6 +31,7 @@ paper monitor가 같은 실행 의미를 공유하고 production server와 Git r
 - natural language compiler, API, persistence migration, monitor
 - 새 progressive Strategy Builder, comparison, chart trace
 - tests/docs/commit/push/database/server deployment
+- npm-driven local production build, managed restart, status, stop and health smoke
 
 ## Non-scope
 
@@ -38,6 +39,7 @@ paper monitor가 같은 실행 의미를 공유하고 production server와 Git r
 - 공급자가 제공하지 않는 historical constituent/delisted/sector 데이터의 추측
 - automatic optimizer, walk-forward optimizer의 본 구현
 - 인증·다중 사용자·공개 mutation 권한 확대
+- npm registry publication and remote hosting before MVP completion
 
 ## Milestones and acceptance criteria
 
@@ -55,6 +57,9 @@ paper monitor가 같은 실행 의미를 공유하고 production server와 Git r
    1440 keyboard/axe 환경에서 완료한다.
 7. **Monitor/release.** 완료 봉 paper signal과 recovery를 검증하고 전체 gates 후 commit/push,
    migration, 새 server deployment와 production smoke를 완료한다.
+8. **Local release automation.** `release:local`이 전체 repository gate를 통과한 최신 source만
+   `127.0.0.1` production server로 배포하고, PID ownership·health·status·stop을 재현 가능하게
+   관리한다.
 
 ## Dependency order
 
@@ -89,7 +94,8 @@ catalog/compiler/persistence → UI/explainability → monitor/release.
 - [x] Builder/explainability and 360/390/768/1440 browser verification.
 - [x] Full gates, review and Supabase migration release.
 - [x] Git commit `fa2b6d8` and `origin/main` push.
-- [ ] Protected remote server deployment.
+- [ ] Local npm release automation and managed production smoke.
+- [ ] Protected remote server deployment after MVP completion.
 
 ## Discoveries and remaining risks
 
@@ -102,14 +108,18 @@ catalog/compiler/persistence → UI/explainability → monitor/release.
   credential 부재 시 Git release와 배포 blocker를 숨기지 않는다.
 - Vercel CLI 59.10.0은 이 machine에서 logged out이고 GitHub repository에는 workflow/deployment가
   없다. anonymous temporary deployment는 인증 없는 mutation API를 공개하므로 사용하지 않는다.
+- 사용자 결정에 따라 MVP 완료 전 배포 target은 이 Mac의 loopback interface뿐이다. 프로세스
+  state/log는 gitignored `.qos/runtime`에 저장하고 다른 프로세스의 PID는 종료하지 않는다.
 
 ## Decision log
 
 - 2026-09-01 — Full prompt is the accepted specification; scope is not reduced to scenarios A–E.
 - 2026-09-01 — v3 is additive; preset factories create rule trees and are not execution dispatch keys.
 - 2026-09-01 — ADR-0009 owns signal/fill/intrabar/VWAP/MTF/cost/partial/sizing/look-ahead policy.
+- 2026-09-01 — Before MVP completion, release means a verified npm-driven deployment bound only to
+  `127.0.0.1`; npm registry and public hosting remain disabled.
 
 ## Outcome
 
-Implementation, full gates, DB migration and Git push are complete. Protected remote hosting은
-credential/protection 설정이 없어 blocked 상태다.
+Implementation, full gates, DB migration and Git push are complete. Local release automation is the
+active release increment; remote hosting is intentionally deferred until MVP completion.
