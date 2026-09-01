@@ -13,6 +13,7 @@ const LocalDeploymentStateSchema = z
     repositoryRoot: z.string().trim().min(1),
     commit: z.string().regex(/^[a-f0-9]{40}$/),
     dirty: z.boolean().default(false),
+    processStartedAt: z.string().trim().min(1),
     startedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
@@ -66,13 +67,27 @@ export function localNextCommand(repositoryRoot: string, port: number): string[]
   ];
 }
 
-export function isOwnedLocalProductionCommand(
-  command: string,
+export function isOwnedRunningLocalProductionProcess(
+  processInfo: { command: string; cwd: string; listener: string },
   repositoryRoot: string,
   port: number,
 ): boolean {
-  const normalized = command.trim().replace(/\s+/g, " ");
-  return normalized === localNextCommand(repositoryRoot, port).join(" ");
+  return (
+    /^next-server \(v\d+\.\d+\.\d+\)$/.test(processInfo.command.trim()) &&
+    path.resolve(processInfo.cwd) === path.resolve(repositoryRoot) &&
+    processInfo.listener.trim() === `${LOCAL_DEPLOYMENT_HOST}:${port}`
+  );
+}
+
+export function matchesLocalDeploymentState(
+  processInfo: { command: string; cwd: string; listener: string; startedAt: string },
+  state: Pick<LocalDeploymentState, "port" | "processStartedAt">,
+  repositoryRoot: string,
+): boolean {
+  return (
+    processInfo.startedAt === state.processStartedAt &&
+    isOwnedRunningLocalProductionProcess(processInfo, repositoryRoot, state.port)
+  );
 }
 
 const CatalogHealthSchema = z

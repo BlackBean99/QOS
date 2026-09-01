@@ -88,29 +88,41 @@ Strategy v3 API는 `GET /api/strategy-engine/catalog`, `POST /api/strategy-engin
 보내 같은 dataset과 비용 조건에서 실행합니다. 자연어 결과도 임의 코드를 실행하지 않고 검증된
 v3 JSON만 반환합니다.
 
-Production 실행은 다음과 같습니다.
+MVP 완료 전 production target은 이 Mac의 loopback interface뿐입니다. 최신 source를 build해
+`127.0.0.1:3000`에 재배포하려면 다음 명령을 사용합니다.
 
 ```bash
-npm run build
-npm run start
+npm run deploy:local
+npm run deploy:local:status
 ```
+
+전체 format/lint/typecheck/test/build/audit와 Chromium E2E를 먼저 통과시킨 뒤 배포하는 공식
+로컬 release 명령은 `npm run release:local`입니다. 실패하면 기존 관리 서버를 다시 띄우지 않으며
+오류를 반환합니다. `npm run deploy:local:stop`으로 스크립트가 소유한 서버만 종료합니다. 다른
+포트는 `QOS_LOCAL_PORT=4310 npm run deploy:local`처럼 지정할 수 있습니다. 상태와 로그는 Git에서
+제외된 `.qos/runtime`에 저장되며 npm registry publish와 공개 hosting은 수행하지 않습니다.
 
 ## 품질 명령
 
-| 목적                  | 명령                       |
-| --------------------- | -------------------------- |
-| Format 확인           | `npm run format:check`     |
-| Lint                  | `npm run lint`             |
-| Typecheck             | `npm run typecheck`        |
-| Unit + integration    | `npm run test`             |
-| Unit만                | `npm run test:unit`        |
-| Integration만         | `npm run test:integration` |
-| Chromium E2E + 접근성 | `npm run test:e2e`         |
-| Production build      | `npm run build`            |
-| 실시간 감시 process   | `npm run monitor`          |
-| Supabase 연결         | `npm run db:link`          |
-| DB migration 적용     | `npm run db:push`          |
-| DB migration 확인     | `npm run db:migrations`    |
+| 목적                    | 명령                          |
+| ----------------------- | ----------------------------- |
+| Format 확인             | `npm run format:check`        |
+| Lint                    | `npm run lint`                |
+| Typecheck               | `npm run typecheck`           |
+| Unit + integration      | `npm run test`                |
+| Unit만                  | `npm run test:unit`           |
+| Integration만           | `npm run test:integration`    |
+| Chromium E2E + 접근성   | `npm run test:e2e`            |
+| Production build        | `npm run build`               |
+| Core local release gate | `npm run verify`              |
+| 최신 source 로컬 배포   | `npm run deploy:local`        |
+| 로컬 배포 상태          | `npm run deploy:local:status` |
+| 로컬 배포 종료          | `npm run deploy:local:stop`   |
+| 검증 후 로컬 release    | `npm run release:local`       |
+| 실시간 감시 process     | `npm run monitor`             |
+| Supabase 연결           | `npm run db:link`             |
+| DB migration 적용       | `npm run db:push`             |
+| DB migration 확인       | `npm run db:migrations`       |
 
 첫 E2E 실행 전 Chromium이 없다면 `npx playwright install chromium`을 한 번 실행합니다.
 
@@ -125,9 +137,10 @@ src/domain/backtest-v3/      position/exit/risk/execution/backtest/metrics
 src/server/          Supabase/local repository, 관리 service와 외부 API adapter
 src/server/toss/     TOSS OAuth, 종목 master, candle, WebSocket adapter
 src/monitor/         완성 봉 평가, 중복 방지와 Telegram delivery
-scripts/             별도 live monitor entrypoint
+scripts/             live monitor와 안전한 local release entrypoint
 supabase/            versioned Postgres migrations와 CLI config
 .qos/data/           gitignored local fallback·설정·monitor 상태
+.qos/runtime/        gitignored local production PID 상태와 redacted log
 tests/               unit/integration tests
 e2e/                 360/390/768/1440 browser/accessibility tests
 ```

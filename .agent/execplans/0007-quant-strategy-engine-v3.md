@@ -2,8 +2,8 @@
 
 ## Status
 
-Local MVP release automation in progress — implementation, database and Git push are complete; remote
-hosting is intentionally deferred until the MVP boundary changes — 2026-09-01.
+Complete — Strategy Engine v3 and verified local MVP release automation are implemented. Remote hosting
+is intentionally deferred until MVP completion — 2026-09-01.
 
 ## Purpose and observable outcome
 
@@ -94,7 +94,7 @@ catalog/compiler/persistence → UI/explainability → monitor/release.
 - [x] Builder/explainability and 360/390/768/1440 browser verification.
 - [x] Full gates, review and Supabase migration release.
 - [x] Git commit `fa2b6d8` and `origin/main` push.
-- [ ] Local npm release automation and managed production smoke.
+- [x] Local npm release automation and managed production smoke.
 - [ ] Protected remote server deployment after MVP completion.
 
 ## Discoveries and remaining risks
@@ -121,5 +121,8 @@ catalog/compiler/persistence → UI/explainability → monitor/release.
 
 ## Outcome
 
-Implementation, full gates, DB migration and Git push are complete. Local release automation is the
-active release increment; remote hosting is intentionally deferred until MVP completion.
+Implementation, DB migration and the Strategy v3 Git release are complete. The npm-driven local release
+now runs all repository/browser gates, binds only to `127.0.0.1`, verifies catalog/compiler health and
+manages only its owned PID. The final run passed 205 Vitest tests, 71 Playwright tests with 9 intentional
+matrix skips, production build and audit with zero known production vulnerabilities. Remote hosting is
+intentionally deferred until MVP completion.

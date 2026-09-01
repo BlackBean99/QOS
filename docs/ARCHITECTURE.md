@@ -19,8 +19,10 @@ src/server/toss/        OAuth, stock master, candle REST와 realtime WebSocket
 src/server/             Supabase/local repository, 관리 service, HTTP 오류와 redacted logging
 src/monitor/            completed-bar evaluator, runtime state와 delivery runner
 scripts/live-monitor.ts 별도 monitor process entrypoint
+scripts/local-deploy.ts loopback production lifecycle과 contract health check
 supabase/               CLI config와 additive Postgres migrations
 .qos/data/              gitignored local fallback/settings/monitor JSON
+.qos/runtime/           gitignored local production state/lock/log
 tests/                  Vitest unit/integration
 e2e/                    Playwright 360/390/768/1440와 axe
 ```
@@ -45,7 +47,19 @@ npm run monitor
   -> filters to completed 1d/5m bars and evaluates paper BUY/SELL
   -> dedupe key(strategy id, revision, side, bar) in monitor-state.json
   -> Telegram plain-text delivery
+
+npm run release:local
+  -> stop only the PID owned by this repository's saved deployment state
+  -> format/lint/typecheck/Vitest/build/audit and Chromium E2E
+  -> start Next production on 127.0.0.1 only
+  -> verify home + complete 42/8/20 catalog + multi-entry compiler contract
+  -> atomically record PID/start time/Git commit/dirty state in .qos/runtime
 ```
+
+`deploy:local`은 빠른 build/restart 명령이고 `release:local`은 공식 전체 gate 경로다. 상태 파일의
+repository root, PID 시작 시각, process cwd, Next process 이름과 정확한 loopback listener가 모두
+일치하지 않으면 종료를 거부한다. MVP 완료 전에는 npm registry publish나 원격 hosting을 이 흐름에
+연결하지 않는다. 자세한 결정과 rollback은 ADR-0010을 따른다.
 
 ## Provider and failure boundaries
 

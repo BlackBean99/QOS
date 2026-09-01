@@ -3,6 +3,27 @@
 검토 가능한 사실과 결과만 기록한다. 상세 계획은 `.agent/execplans/`, 장기 결정은
 `docs/decisions/`에 둔다.
 
+## 2026-09-01 — Verified local MVP release automation
+
+- MVP 완료 전 release target을 이 Mac의 `127.0.0.1`로 고정하고, npm registry publication과
+  공개 hosting은 하지 않는 결정을 ADR-0010에 기록했다.
+- `npm run verify`는 format/lint/typecheck/Vitest/build/production audit를 직렬 실행한다.
+  `release:local`은 관리 서버를 안전하게 종료한 뒤 이 gate와 Chromium E2E를 통과한 build만
+  로컬 production으로 시작한다. 개발 중 빠른 재배포는 `deploy:local`, 상태/종료는
+  `deploy:local:status`와 `deploy:local:stop`을 사용한다.
+- 서버는 loopback에만 bind한다. `.qos/runtime`의 mode `0600` state/log에 PID, process 시작 시각,
+  Git commit과 dirty 여부를 기록한다. 종료 전 repository root, process cwd/name, 시작 시각과
+  실제 listener를 모두 대조하며 확인할 수 없는 PID는 종료하거나 state에서 지우지 않는다.
+- health gate는 home 응답뿐 아니라 Entry 42·Filter 8·Exit 20 전체 catalog와 세 Entry/한 Filter/
+  ATR·Time Exit를 합성한 deterministic compiler 결과까지 검사한다.
+- test-first로 port/state/process ownership와 health contract 단위 테스트 5개를 추가했다. 실제
+  lifecycle에서 deploy→healthy status→owned stop→stopped를 확인했고, 공식 `release:local`은 unit
+  161, integration 44, 전체 Vitest 205, Playwright 71 pass와 9 intentional skip, production build,
+  audit 0 known production vulnerabilities 후 `http://127.0.0.1:3000` healthy를 기록했다.
+- rollback은 관리 서버를 중지하거나 알려진 정상 commit을 별도 worktree에서 같은 release
+  명령으로 build하는 방식이다. 부팅 자동 시작, crash restart, 로그 회전과 원격 배포는 아직
+  제공하지 않는다.
+
 ## 2026-09-01 — Quant Strategy Engine v3
 
 - v1/v2 저장 문서를 보존하면서 strict v3 DSL을 추가했다. Entry와 Filter는 AND/OR/NOT 중첩,

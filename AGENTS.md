@@ -6,9 +6,10 @@
 ## 현재 저장소 상태
 
 - npm + Node.js 20.9 이상 + 단일 Next.js/TypeScript 앱으로 실제 TOSS 국내·미국 종목
-  검색/시세, KLineChart, 로컬 JSON 전략 저장과 별도 Telegram monitor가 구현되었다. 결정은
-  `docs/decisions/ADR-0001-*.md`부터 `ADR-0007-*.md`에 있다.
-- 별도 DB와 인증은 없고, OpenAI compiler는 optional이며 실제 시장 공급자는 TOSS로 정했다.
+  검색/시세, KLineChart, Strategy v3 Rule Chain, Supabase/로컬 JSON 저장과 별도 Telegram
+  monitor가 구현되었다. 결정은 `docs/decisions/ADR-0001-*.md`부터 `ADR-0010-*.md`에 있다.
+- Supabase는 optional primary persistence, OpenAI compiler는 optional이며 실제 시장 공급자는
+  TOSS로 정했다. 인증은 아직 없다.
 - MVP는 로컬 중심 단일 사용자다. 회원가입, 인증과 공개 시장 배포는 범위 밖이다.
 - 핵심 흐름은 TOSS 실제 종목 검색→전략 구성/저장→paper backtest 또는 실시간 감시→
   KLineChart BUY/SELL 검토와 Telegram 알림이다.
@@ -40,6 +41,11 @@
 - browser/accessibility test: `npm run test:e2e`
 - production build: `npm run build`
 - production 실행: `npm run start`
+- format부터 audit까지 core release gate: `npm run verify`
+- 최신 source 로컬 production 배포: `npm run deploy:local`
+- 로컬 production 상태 확인: `npm run deploy:local:status`
+- 로컬 production 안전 종료: `npm run deploy:local:stop`
+- 전체 gate 후 로컬 production release: `npm run release:local`
 - 실시간 신호 감시: `npm run monitor`
 - Supabase project 연결: `npm run db:link`
 - Supabase migration 적용: `npm run db:push`

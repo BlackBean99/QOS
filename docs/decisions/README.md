@@ -13,6 +13,7 @@
 - [ADR-0007: KLineChart 10 for the interactive market chart](ADR-0007-klinechart-interactive-market-chart.md)
 - [ADR-0008: Supabase strategy persistence and backtest history](ADR-0008-supabase-strategy-persistence.md)
 - [ADR-0009: Strategy v3 rule chain and conservative execution](ADR-0009-strategy-v3-rule-chain-and-execution.md)
+- [ADR-0010: Verified loopback releases before MVP](ADR-0010-verified-loopback-releases.md)
 
 ## Naming
 

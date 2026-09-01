@@ -296,3 +296,25 @@ production health/API/UI smoke
 - [x] 실제 data/LLM credential 부재와 남은 quant 위험을 명시한다.
 
 **Verify:** all repository gates and `git diff --check`
+
+---
+
+# Local MVP release automation
+
+## Task 1: Safe managed production lifecycle
+
+- [x] production server는 `127.0.0.1`과 bounded unprivileged port에만 bind한다.
+- [x] repository/PID 시작 시각/cwd/process/listener가 모두 일치하는 process만 종료한다.
+- [x] atomic mode `0600` state와 log, deployment lock, stale-state와 occupied-port 실패를 처리한다.
+
+**Verify:** `npm run test:unit -- local-deployment`, 실제 deploy/status/stop lifecycle
+
+## Task 2: Verified npm release
+
+- [x] `npm run verify`가 format/lint/typecheck/test/build/production audit를 직렬 실행한다.
+- [x] `npm run release:local`이 verify와 Playwright E2E 후 catalog/compiler health를 통과한
+      build만 시작한다.
+- [x] README, AGENTS, Architecture, Quality Gates, ADR-0010, WORKLOG와 ExecPlan이 실제 명령과
+      로컬 전용 경계를 설명한다.
+
+**Verify:** `npm run release:local`, `npm run deploy:local:status`, `git diff --check`
