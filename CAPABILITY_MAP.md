@@ -74,7 +74,7 @@ Status: Approved for full implementation by the user — 2026-09-01
 | `backtest-analytics-v3`        | deterministic simulation, trade ledger, metrics, comparison, golden result     | position execution, timeframe runtime     |
 | `strategy-catalog-compiler-v3` | 모든 명시 Entry/Exit/Filter preset과 자연어→검증된 v3 DSL                      | contract, rule evaluator                  |
 | `strategy-persistence-v3`      | v1/v2/v3 JSON 호환, immutable run snapshot과 Supabase migration                | contract, backtest analytics              |
-| `strategy-builder-v3`          | 검색 가능한 catalog, 무제한 rule chain, progressive disclosure UI              | catalog/compiler, persistence             |
+| `strategy-builder-v3`          | 검색 가능한 catalog, 최대 64-leaf rule chain, progressive disclosure UI        | catalog/compiler, persistence             |
 | `research-explainability-v3`   | 비교표, 선택 지표 chart, trade detail과 entry/exit trace                       | builder, backtest analytics               |
 | `paper-monitor-v3`             | 완료 봉 v3 signal, idempotent paper alert와 position-state recovery            | execution, persistence, market runtime    |
 

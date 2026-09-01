@@ -34,6 +34,9 @@
   desktop-only matrix 9 intentional skips, production build/start, npm audit 0 vulnerabilities가
   통과했다. 다중 자연어 Entry chain은 360/390/768/1440에서 axe violation과 overflow 없이
   동작했다.
+- Git: 검증된 application release를 commit `fa2b6d8`로 만들고 GitHub `origin/main`에 push했다.
+  push 직후 GitHub Actions workflow와 deployment record는 없었고 Vercel CLI 59.10.0은 logged out
+  상태였다.
 - 경계: historical constituent/delisted/sector 자료는 TOSS 공급 범위 밖이므로 해결했다고
   주장하지 않는다. TOSS production OAuth의 기존 HTTP 403은 별도 provider 권한 문제다. live
   broker 주문은 추가하지 않았다. 인증 없는 mutation API를 공개하지 않기 위해 원격 server

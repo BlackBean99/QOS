@@ -9,7 +9,8 @@
 - [x] 새 Builder에서 수십 rule 검색·중첩·수정, A–E backtest/comparison/trace가 동작한다.
 - [x] 360/390/768/1440 keyboard/axe/performance와 전체 repository gates가 통과한다.
 - [x] 자체 review, secret scan, DB migration과 local production smoke가 완료된다.
-- [ ] commit/push와 인증으로 보호된 remote server deploy가 완료된다.
+- [x] 검증된 release commit이 `origin/main`에 push된다.
+- [ ] 인증으로 보호된 remote server deploy가 완료된다.
 
 **Verify:** focused RED/GREEN Vitest, full repository gates, Playwright, DB migration status,
 production health/API/UI smoke

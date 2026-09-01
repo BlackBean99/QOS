@@ -2,8 +2,8 @@
 
 ## Status
 
-Release verification — implementation, database and local production verification complete; protected
-remote hosting credential unavailable — 2026-09-01.
+Release verification — implementation, database, Git push and local production verification complete;
+protected remote hosting credential unavailable — 2026-09-01.
 
 ## Purpose and observable outcome
 
@@ -88,7 +88,8 @@ catalog/compiler/persistence → UI/explainability → monitor/release.
 - [x] Multi-entry local compiler, optional allowlisted OpenAI fallback, API/persistence/monitor.
 - [x] Builder/explainability and 360/390/768/1440 browser verification.
 - [x] Full gates, review and Supabase migration release.
-- [ ] Git push and protected remote server deployment.
+- [x] Git commit `fa2b6d8` and `origin/main` push.
+- [ ] Protected remote server deployment.
 
 ## Discoveries and remaining risks
 
@@ -110,5 +111,5 @@ catalog/compiler/persistence → UI/explainability → monitor/release.
 
 ## Outcome
 
-Implementation, full gates and DB migration are complete. Git push와 protected remote hosting은 release
-단계에서 별도 증거를 기록한다.
+Implementation, full gates, DB migration and Git push are complete. Protected remote hosting은
+credential/protection 설정이 없어 blocked 상태다.
