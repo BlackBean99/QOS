@@ -1,4 +1,17 @@
-# Active Plan: Quant Strategy Engine v3
+# Completed Plan: Strategy recommendation and efficient tracking
+
+1. timeframe별 default/custom backtest 기간 계약을 API와 engine에 연결한다.
+2. 전체 Entry 42개를 동일 데이터·비용으로 평가하는 deterministic 추천 API를 만든다.
+3. monitor의 dataset/요청을 종목·timeframe별 공유하고 session cadence와 관측 지표를 적용한다.
+4. 추천 적용·저장+tracking ON UI와 local server+worker lifecycle을 연결한다.
+5. 전체 gate/browser/runtime/Git push와 local release를 완료한다.
+
+상세 명세는 `SPEC-strategy-recommendation-tracking.md`, 진행과 rollback은
+`.agent/execplans/0008-strategy-recommendation-tracking.md`가 기준이다.
+
+---
+
+# Completed Plan: Quant Strategy Engine v3
 
 1. Strategy v3 Rule Chain·indicator/timeframe·execution 계약을 strict schema와 ADR로 고정한다.
 2. 모든 Entry 42·Exit 20·Filter 8을 같은 evaluator에서 실행 가능한 preset factory로 구현한다.

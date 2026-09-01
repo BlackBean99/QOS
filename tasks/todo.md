@@ -1,3 +1,17 @@
+# Strategy recommendation and efficient tracking
+
+- [x] 전체 catalog/backtest/monitor/local release baseline과 비용 중복 지점을 분석한다.
+- [x] default/custom backtest window와 API validation을 구현한다.
+- [x] Entry 42개 recommendation ranking/cache/observability를 구현한다.
+- [x] monitor shared dataset/session cadence/gap recovery와 상태 counters를 구현한다.
+- [x] local release가 Next server와 singleton monitor worker를 함께 관리한다.
+- [x] 자동 추천·기간·적용·저장+tracking ON UI와 browser 접근성을 구현한다.
+- [x] full gates, docs/ADR/WORKLOG와 verified local release를 완료한다.
+
+**Verify:** focused Vitest, Playwright 360/390/768/1440, full repository gates, production smoke
+
+---
+
 # Quant Strategy Engine v3
 
 - [x] strict v3 Rule Chain과 모든 operand/operator/parameter metadata가 검증된다.

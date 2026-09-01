@@ -36,29 +36,33 @@ Browser
   -> /api/market/stream -> TOSS trade WebSocket -> SSE -> current display candle
   -> strategy compiler/builder -> strict Strategy v1/v2/v3
   -> /api/strategy-engine/{catalog,compile,backtests} -> actual TOSS candles -> paper result/comparison
+  -> /api/strategy-recommendations -> one dataset -> all 42 Entry runs -> historical ranking
   -> /api/strategies CRUD/import/export -> Supabase qos_strategies
   -> /api/strategies/:id/backtests -> TOSS paper backtest -> qos_backtest_runs snapshot
   -> /api/backtest-runs/:id -> full history read/delete
   -> /api/telegram connect/test -> .qos/data/settings.json + Telegram Bot API
 
-npm run monitor
+npm run monitor (development) / managed monitor (local release)
+  -> acquire repository-scoped singleton process lease
   -> reads enabled stored strategies
-  -> subscribes TOSS trades + periodically repairs from REST candles
-  -> filters to completed 1d/5m bars and evaluates paper BUY/SELL
+  -> refreshes desired state every 60s and subscribes TOSS trades
+  -> shares instrument+timeframe candles and repairs completed gaps on session-aligned windows
+  -> evaluates completed 1m~1w bars as paper BUY/SELL
   -> dedupe key(strategy id, revision, side, bar) in monitor-state.json
   -> Telegram plain-text delivery
 
 npm run release:local
   -> stop only the PID owned by this repository's saved deployment state
   -> format/lint/typecheck/Vitest/build/audit and Chromium E2E
-  -> start Next production on 127.0.0.1 only
-  -> verify home + complete 42/8/20 catalog + multi-entry compiler contract
-  -> atomically record PID/start time/Git commit/dirty state in .qos/runtime
+  -> start Next production on 127.0.0.1 and a repository-local monitor worker
+  -> verify home + complete 42/8/20 catalog + compiler + fresh non-error monitor heartbeat
+  -> refuse a second live monitor lease owner
+  -> atomically record both PID/start times/Git commit/dirty state in .qos/runtime
 ```
 
 `deploy:local`은 빠른 build/restart 명령이고 `release:local`은 공식 전체 gate 경로다. 상태 파일의
-repository root, PID 시작 시각, process cwd, Next process 이름과 정확한 loopback listener가 모두
-일치하지 않으면 종료를 거부한다. MVP 완료 전에는 npm registry publish나 원격 hosting을 이 흐름에
+repository root, PID 시작 시각, process cwd와 server/worker command가 모두 일치하지 않으면 종료를
+거부하며 정상 server의 정확한 loopback listener도 검사한다. MVP 완료 전에는 npm registry publish나 원격 hosting을 이 흐름에
 연결하지 않는다. 자세한 결정과 rollback은 ADR-0010을 따른다.
 
 ## Provider and failure boundaries
@@ -69,6 +73,9 @@ repository root, PID 시작 시각, process cwd, Next process 이름과 정확�
   provider 오류는 fixture로 대체하지 않는다.
 - TOSS candle은 최대 200개 단위로 paging/dedupe해 오래된 순으로 정규화한다. 5분봉은 1분봉
   OHLCV를 로컬 집계한다.
+- backtest 기간은 종목 timezone의 inclusive date로 resolve하며 자동 기간은 분봉 30일/일봉 2년/
+  주봉 5년이다. recommendation은 한 dataset으로 42 Entry를 실행하고 bounded TTL/in-flight cache를
+  사용한다. 실제 candle 기간은 요청 기간과 별도로 반환한다.
 - realtime `trade:kr/us`는 full-replace subscription, ping과 reconnect를 처리한다. sequence가
   없으므로 REST candle이 authoritative하며 stream volume 합계를 사용하지 않는다.
 - 오류 log는 구조화하고 credential/token/chat id 같은 민감 필드를 redact한다.
@@ -135,3 +142,4 @@ repository root, PID 시작 시각, process cwd, Next process 이름과 정확�
 단일 앱/전략 계약/종목 선택/OpenAI compiler는 ADR-0001~~0004, TOSS+monitor/local JSON/
 KLineChart는 ADR-0005~~0007, Supabase primary persistence는 ADR-0008, Strategy v3 DSL과
 conservative execution은 ADR-0009를 따른다.
+Verified loopback lifecycle은 ADR-0010, 추천·기간·monitor cadence는 ADR-0011을 따른다.

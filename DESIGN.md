@@ -58,6 +58,11 @@ QOS는 설명형 금융 랜딩이 아니라 바로 조작하는 로컬 리서치
   Risk/Execution은 sizing·circuit breaker·order/cost/tick/intrabar를 같은 흐름에서 편집한다.
 - Backtest 뒤 chart marker, stop/target/trailing guide, trade row와 Decision Trace를 연결해
   “왜 진입/청산됐는지”를 값·연산자·PASS/FAIL로 읽을 수 있어야 한다.
+- 종목 선택 뒤 Strategy Builder 앞에 all-entry 추천 panel을 둔다. 자동 기간은 실제 선택 날짜와
+  candle 수를 표시하고, 고급 사용자는 native date/timeframe control로 같은 Builder backtest
+  기간을 바꾼다. 1위와 상위 후보는 수익률뿐 아니라 MDD/Sharpe/거래 수를 함께 보여준다.
+- 추천은 “최적”이나 보장 표현을 쓰지 않고 historical/in-sample label을 유지한다. 적용과
+  `저장+tracking ON`은 분리해 사용자가 편집만 할지 장기 알림까지 켤지 선택한다.
 - 자연어 연구는 `문장→Strategy JSON 후보→사용자 확인→백테스트` 순서를 건너뛸 수 없다.
   LLM 연결 여부와 reference fallback을 같은 기능처럼 위장하지 않는다.
 - 검색 결과 없음, 종목 변경, 실행 중 잠금과 오래된 결과 폐기가 화면 상태로 드러나야 한다.
@@ -66,9 +71,9 @@ QOS는 설명형 금융 랜딩이 아니라 바로 조작하는 로컬 리서치
 - 전략 라이브러리는 목록→read-only JSON view→불러오기/backtest/감시/수정/삭제 순서를
   유지하고 import/export action을 명시적으로 구분한다. 검색 전 recovery mode와 종목 선택 후
   authoring mode를 섞지 않는다.
-- Telegram과 monitor는 설정 완료, 연결, running/error와 마지막 heartbeat를 텍스트로
-  표시하며 색만으로 동작 여부를 전달하지 않는다. 오류에는 safe code와 별도 monitor process
-  재시작 명령을 제공한다.
+- Telegram과 monitor는 설정 완료, 연결, running/error, 마지막 heartbeat, provider request와
+  shared cache hit를 텍스트로 표시하며 색만으로 동작 여부를 전달하지 않는다. 오류에는 safe
+  code와 managed local deployment 상태/재시작 명령을 제공한다.
 
 ## Responsive and accessibility
 

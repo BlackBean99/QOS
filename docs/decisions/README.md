@@ -14,6 +14,7 @@
 - [ADR-0008: Supabase strategy persistence and backtest history](ADR-0008-supabase-strategy-persistence.md)
 - [ADR-0009: Strategy v3 rule chain and conservative execution](ADR-0009-strategy-v3-rule-chain-and-execution.md)
 - [ADR-0010: Verified loopback releases before MVP](ADR-0010-verified-loopback-releases.md)
+- [ADR-0011: Historical all-entry recommendation and efficient tracking](ADR-0011-historical-recommendation-and-efficient-tracking.md)
 
 ## Naming
 

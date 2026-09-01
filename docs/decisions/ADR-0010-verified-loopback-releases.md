@@ -26,8 +26,12 @@ QOS는 MVP 완료 전 한 대의 Mac에서 사용하는 인증 없는 단일 사
   `deploy:local:stop`은 상태 확인과 종료에 사용한다.
 - 서버는 Node가 저장소의 Next binary를 `start -H 127.0.0.1`로 실행한다. 상태는 Git에서 제외된
   `.qos/runtime/local-production.json`, 로그는 mode `0600` 파일에 보관한다.
-- 종료 소유권은 state의 repository root/PID/start time과 실제 process cwd/name/listener를 모두
-  대조한다. 하나라도 확인할 수 없으면 다른 프로세스를 종료하거나 state를 폐기하지 않는다.
+- 종료 소유권은 server/monitor 각각의 repository root/PID/start time과 실제 process cwd/name/
+  command를 대조하고, 정상 server는 listener까지 확인한다. 이미 listener를 잃은 server는 저장된
+  PID/start time/cwd/Next process identity가 모두 일치할 때만 복구 종료한다.
+- local release는 Next server와 별도 monitor worker를 함께 시작한다. worker가 새 heartbeat를
+  기록하고 repository-local `tsx scripts/live-monitor.ts` command인지 확인한 뒤에만 state v2를
+  기록한다. 기존 server-only state v1은 rollback/종료 호환을 유지한다.
 - 배포 성공은 `/`, 전체 42 Entry·8 Filter·20 Exit catalog와 다중 Entry deterministic compiler
   결과를 제한시간 안에 확인한 뒤에만 기록한다. 상태에는 Git commit과 dirty 여부를 남긴다.
 
@@ -56,7 +60,8 @@ QOS는 설치형 library가 아닌 단일 Next.js application이다. registry pu
 ## Consequences and risks
 
 - 한 명령으로 최신 작업 트리를 검증하고 로컬 production을 재현할 수 있다.
-- 관리 상태가 없는 프로세스나 다른 저장소의 PID를 자동 종료하지 않는다.
+- 관리 상태가 없는 프로세스나 다른 저장소의 PID를 자동 종료하지 않는다. server 또는 monitor
+  어느 한쪽의 소유권이 불명확하면 먼저 어떤 PID도 종료하지 않는다.
 - release gate가 실패하면 서버는 stopped 상태다. 원인을 수정해 같은 명령을 다시 실행하거나,
   필요하면 알려진 정상 commit을 별도 worktree에서 build/release하는 것이 rollback 경로다.
 - Mac 재시작 후 stale state는 PID가 존재하지 않을 때만 정리된다. 로그 회전과 부팅 시 자동 시작은

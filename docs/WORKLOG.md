@@ -3,6 +3,33 @@
 검토 가능한 사실과 결과만 기록한다. 상세 계획은 `.agent/execplans/`, 장기 결정은
 `docs/decisions/`에 둔다.
 
+## 2026-09-01 — All-entry recommendation, custom periods and efficient tracking
+
+- 종목 선택 시 Strategy v3 Entry preset 42개 전체를 한 TOSS dataset, 동일 비용·next-open 정책과
+  baseline ATR 2x stop + 2R target으로 평가한다. 거래가 있는 후보를 과거 총수익률, MDD, Sharpe,
+  preset id 순으로 결정론적으로 정렬하며 결과는 편집 가능한 v3 DSL이다. in-sample·생존편향·기본
+  parameter 한계를 UI에 모두 표시한다.
+- backtest 기간은 종목 timezone 기준 inclusive date다. 빈 값은 분봉 30일·일봉 2년·주봉 5년이고,
+  직접 설정 분봉은 TOSS 보존 범위에 맞춰 최근 31일·최대 31일로 fail closed한다. 일반 v3/저장
+  전략/recommendation이 같은 계약을 쓰고 요청 기간과 실제 완료 candle 기간을 구분한다.
+- 추천 API는 instrument/timeframe/window/catalog key의 최대 100개 TTL cache와 in-flight
+  coalescing을 사용한다. UI에서 timeframe이나 날짜를 바꾸면 이전 추천의 적용·저장 action을 즉시
+  무효화하여 새 조건 설명으로 오래된 전략을 tracking하는 race를 막는다.
+- monitor는 전략 목록을 60초마다 갱신하고 `instrumentId + timeframe` dataset과 동시 load를 공유한다.
+  PRE/장중 bar/POST fetch window, bounded gap recovery, provider 실패 30초~5분 exponential backoff,
+  session-close partial bar 완료 판정과 일/주봉 5분 확정 여유를 적용한다. REST page 수, cache hit와
+  마지막 sync/refresh를 상태와 구조화 로그에 기록한다.
+- local release는 Next와 monitor worker를 함께 관리한다. repository-scoped PID lease가 manual/
+  managed 중복 worker와 중복 Telegram 전송을 fail closed하며 health는 fresh heartbeat뿐 아니라
+  non-error status를 요구한다. 실제 deploy→healthy status→두 번째 monitor 거부→owned stop에서
+  server와 child worker 정리를 확인했다.
+- 검증: format/lint/typecheck, 39개 Vitest 파일의 220개 test, Playwright 75 pass와 9 intentional
+  desktop-only skip, production build, `npm audit --omit=dev` 0 vulnerabilities가 통과했다. 1440px와
+  390px production screenshot에서 loopback UI의 overflow 없는 레이아웃을 확인했다.
+- 외부 경계: configured TOSS 검색 smoke는 `rate_limited` 응답이라 실제 recommendation 호출까지
+  진행하지 않았다. historical constituent/delisted와 early-close calendar, Mac reboot/crash 자동
+  재시작, live order는 구현 범위 밖이다.
+
 ## 2026-09-01 — Verified local MVP release automation
 
 - MVP 완료 전 release target을 이 Mac의 `127.0.0.1`로 고정하고, npm registry publication과

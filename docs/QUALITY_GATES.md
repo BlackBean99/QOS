@@ -13,28 +13,28 @@
 
 ## Required commands
 
-| Gate                     | Command                       | 2026-09-01 result                  |
-| ------------------------ | ----------------------------- | ---------------------------------- |
-| Format check             | `npm run format:check`        | Passed                             |
-| Lint                     | `npm run lint`                | Passed                             |
-| Typecheck                | `npm run typecheck`           | Passed                             |
-| Unit tests               | `npm run test:unit`           | 161 passed                         |
-| Integration tests        | `npm run test:integration`    | 44 passed                          |
-| Full Vitest suite        | `npm run test`                | 205 passed                         |
-| End-to-end               | `npm run test:e2e`            | 71 passed, 9 matrix skips          |
-| Production build         | `npm run build`               | Passed                             |
-| Production run           | `npm run start`               | v3 UI/catalog/storage smoke passed |
-| Combined local gates     | `npm run verify`              | See required gates above           |
-| Managed local deploy     | `npm run deploy:local`        | Loopback contract smoke passed     |
-| Local deployment status  | `npm run deploy:local:status` | Healthy/stopped passed             |
-| Managed local stop       | `npm run deploy:local:stop`   | Owned process stop passed          |
-| Verified local release   | `npm run release:local`       | Full gates + loopback smoke passed |
-| Monitor runtime          | `npm run monitor`             | Unchanged; 2026-08-23 pass         |
-| Accessibility automation | browser + `test:e2e`          | production axe: 0 selected flow    |
-| Dependency audit         | `npm audit --omit=dev`        | 0 known production vulnerabilities |
-| Supabase migration       | `npm run db:migrations`       | Local/remote versions aligned      |
-| Supabase remote CRUD/RLS | temporary-row smoke           | CRUD/update/history/delete passed  |
-| TOSS real provider       | safe OAuth/master smoke       | HTTP 403; IP/permission unresolved |
+| Gate                     | Command                       | 2026-09-01 result                   |
+| ------------------------ | ----------------------------- | ----------------------------------- |
+| Format check             | `npm run format:check`        | Passed                              |
+| Lint                     | `npm run lint`                | Passed                              |
+| Typecheck                | `npm run typecheck`           | Passed                              |
+| Unit tests               | `npm run test:unit`           | 161 passed                          |
+| Integration tests        | `npm run test:integration`    | 44 passed                           |
+| Full Vitest suite        | `npm run test`                | 205 passed                          |
+| End-to-end               | `npm run test:e2e`            | 71 passed, 9 matrix skips           |
+| Production build         | `npm run build`               | Passed                              |
+| Production run           | `npm run start`               | v3 UI/catalog/storage smoke passed  |
+| Combined local gates     | `npm run verify`              | See required gates above            |
+| Managed local deploy     | `npm run deploy:local`        | Loopback contract smoke passed      |
+| Local deployment status  | `npm run deploy:local:status` | Healthy/stopped passed              |
+| Managed local stop       | `npm run deploy:local:stop`   | Owned process stop passed           |
+| Verified local release   | `npm run release:local`       | Full gates + loopback smoke passed  |
+| Monitor runtime          | `npm run monitor`             | 2026-09-01 singleton/lifecycle pass |
+| Accessibility automation | browser + `test:e2e`          | production axe: 0 selected flow     |
+| Dependency audit         | `npm audit --omit=dev`        | 0 known production vulnerabilities  |
+| Supabase migration       | `npm run db:migrations`       | Local/remote versions aligned       |
+| Supabase remote CRUD/RLS | temporary-row smoke           | CRUD/update/history/delete passed   |
+| TOSS real provider       | safe OAuth/master smoke       | HTTP 403; IP/permission unresolved  |
 
 E2E는 첫 실행 전에 `npx playwright install chromium`이 필요하다. 표의 결과는 현재
 작업 트리의 마지막 검증 기록이며 이후 코드 변경 뒤에는 다시 실행해야 한다.
@@ -45,7 +45,7 @@ viewport 모두 실행한다.
 
 MVP 완료 전 공식 production release는 `npm run release:local`이다. 전체 gate가 하나라도
 실패하면 시작하지 않으며 성공 후 home, Strategy v3 catalog와 다중 Entry compiler contract가
-정상인 경우에만 `127.0.0.1` 상태를 기록한다. `deploy:local`은 빠른 build/restart 경로라 전체
+정상이고 monitor heartbeat와 worker ownership을 확인한 경우에만 `127.0.0.1` 상태를 기록한다. `deploy:local`은 빠른 build/restart 경로라 전체
 release 증거를 대신하지 않는다. `deploy:local:stop`은 저장소/PID 시작 시각/cwd/process/listener
 소유권을 모두 확인한 프로세스만 종료한다.
 
@@ -66,6 +66,11 @@ release 증거를 대신하지 않는다. `deploy:local:stop`은 저장소/PID �
 - 모든 사용자 흐름: 자동 접근성 검사와 수동 키보드 검증
 - LLM compiler: local multi-entry composition, missing key/provider failure/invalid output/strict valid
   output, allowlisted preset intent, prompt size와 `store: false`
+- recommendation/window: 42 Entry 평가 수, deterministic return/MDD/Sharpe tie-break, default/custom
+  timezone 기간, 실제 candle 범위, TTL/in-flight cache와 invalid intraday window
+- monitor cost: 같은 instrument/timeframe 복수 전략의 provider call count, after-session no-refetch,
+  desired-state refresh cadence, provider failure backoff, request/cache telemetry, singleton lease와
+  server+worker lifecycle
 
 ## Quant correctness gate
 

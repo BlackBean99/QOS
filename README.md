@@ -23,6 +23,9 @@ backtest/실시간 감시하는 로컬 단일 사용자 Quant 웹앱입니다. �
 - Supabase의 versioned 전략 JSON CRUD/import/export와 저장 전략별 백테스트 snapshot 이력
 - Supabase 미구성 개발·테스트 환경을 위한 `.qos/data` local JSON 호환 adapter
 - 별도 monitor process의 완성 봉 신호 감지, 영속 중복 방지와 Telegram private-chat 알림
+- 종목 선택 시 Entry 42개 전체를 같은 기간·비용으로 평가하는 역사적 수익률 추천과 상위 후보
+- 직접 설정 또는 timeframe별 자동 backtest 기간, 추천 적용과 한 번의 저장+paper tracking ON
+- 종목·timeframe 공유 candle cache, session-aligned gap repair와 provider 요청 관측
 
 TOSS 또는 Telegram 장애를 synthetic 데이터로 숨기지 않습니다. 기존 synthetic fixture는 계산
 회귀 테스트에만 남아 있으며 사용자 종목 검색에는 노출되지 않습니다.
@@ -72,8 +75,10 @@ npm run db:migrations
 [`supabase/migrations/README.md`](supabase/migrations/README.md)에 설명합니다.
 
 Telegram은 봇에게 private chat으로 아무 메시지나 한 번 보낸 뒤 앱의 `Telegram 연결`을
-누릅니다. `/start` 명령은 필요하지 않습니다. 실시간 감시는 개발 서버와 별도 터미널에서
-계속 실행해야 합니다.
+누릅니다. `/start` 명령은 필요하지 않습니다. `deploy:local`과 `release:local`은 실시간 monitor를
+production server와 함께 시작합니다. 저장소별 singleton lease가 이미 실행 중인 monitor가 있으면
+중복 worker를 거부합니다. `npm run dev`만 사용하는 동안에는 아래 별도 명령을 계속 실행할 수
+있습니다.
 
 ```bash
 npm run monitor
@@ -84,9 +89,10 @@ BUY/SELL 신호를 감지해 한 번만 전송합니다. v1/v2 호환은 유지�
 Rule/indicator runtime을 사용합니다.
 
 Strategy v3 API는 `GET /api/strategy-engine/catalog`, `POST /api/strategy-engine/compile`,
-`POST /api/strategy-engine/backtests`입니다. 비교는 동일 backtests endpoint에 최대 세 전략을
+`POST /api/strategy-engine/backtests`, `POST /api/strategy-recommendations`입니다. 비교는 동일 backtests endpoint에 최대 여섯 전략을
 보내 같은 dataset과 비용 조건에서 실행합니다. 자연어 결과도 임의 코드를 실행하지 않고 검증된
-v3 JSON만 반환합니다.
+v3 JSON만 반환합니다. backtest/recommendation의 `window`은 optional 시작일·종료일이며 생략하면
+분봉 30일, 일봉 2년, 주봉 5년을 종목 timezone 기준으로 선택합니다.
 
 MVP 완료 전 production target은 이 Mac의 loopback interface뿐입니다. 최신 source를 build해
 `127.0.0.1:3000`에 재배포하려면 다음 명령을 사용합니다.
@@ -98,7 +104,7 @@ npm run deploy:local:status
 
 전체 format/lint/typecheck/test/build/audit와 Chromium E2E를 먼저 통과시킨 뒤 배포하는 공식
 로컬 release 명령은 `npm run release:local`입니다. 실패하면 기존 관리 서버를 다시 띄우지 않으며
-오류를 반환합니다. `npm run deploy:local:stop`으로 스크립트가 소유한 서버만 종료합니다. 다른
+오류를 반환합니다. `npm run deploy:local:stop`으로 스크립트가 소유한 서버와 monitor만 종료합니다. 다른
 포트는 `QOS_LOCAL_PORT=4310 npm run deploy:local`처럼 지정할 수 있습니다. 상태와 로그는 Git에서
 제외된 `.qos/runtime`에 저장되며 npm registry publish와 공개 hosting은 수행하지 않습니다.
 
@@ -134,6 +140,7 @@ src/components/      종목/전략/차트/저장/Telegram UI
 src/domain/strategy-v3/      Rule Chain schema, preset catalog와 compiler
 src/domain/strategy-runtime/ indicator/timeframe registry, rule evaluator와 trace
 src/domain/backtest-v3/      position/exit/risk/execution/backtest/metrics
+src/domain/backtest-window.ts 기간 default/validation/filter/target policy
 src/server/          Supabase/local repository, 관리 service와 외부 API adapter
 src/server/toss/     TOSS OAuth, 종목 master, candle, WebSocket adapter
 src/monitor/         완성 봉 평가, 중복 방지와 Telegram delivery
@@ -157,4 +164,6 @@ e2e/                 360/390/768/1440 browser/accessibility tests
 - [Workspace UX redesign ExecPlan](.agent/execplans/0006-workspace-ux-redesign.md)
 - [Quant Strategy Engine v3 ExecPlan](.agent/execplans/0007-quant-strategy-engine-v3.md)
 - [Strategy v3 specification](SPEC-strategy-engine-v3.md)
+- [추천·기간·tracking specification](SPEC-strategy-recommendation-tracking.md)
+- [추천·tracking ExecPlan](.agent/execplans/0008-strategy-recommendation-tracking.md)
 - [저장소 작업 규칙](AGENTS.md)

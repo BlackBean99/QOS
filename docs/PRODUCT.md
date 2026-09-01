@@ -31,7 +31,9 @@ BUY/SELL을 차트에서 검토한 뒤 실시간 Telegram 알림으로 이어갈
 - 전략과 instrument snapshot/chart setting/drawing을 Supabase JSON으로 CRUD/import/export
 - 저장 view에서 즉시 paper backtest를 실행하고 revision·engine·result snapshot 이력 조회/삭제
 - 저장 view에서 실시간 감시 desired state 변경
-- 별도 monitor가 완성된 일봉/5분봉만 평가하고 영속 dedupe 뒤 Telegram private chat으로 전송
+- 종목 선택 시 42개 Entry 전체의 동일 기간/비용 historical ranking, 직접/자동 기간과 추천 적용
+- 별도 monitor가 모든 지원 timeframe의 완성 봉만 평가하고 영속 dedupe 뒤 Telegram private chat으로 전송
+- local release가 monitor를 자동 실행하고 종목/timeframe 공유 cache와 session cadence로 REST를 제한
 
 기존 synthetic fixture는 전략 계산의 결정론적 회귀 테스트에만 사용한다. 사용자 검색과 실제
 데이터 route에서는 노출하거나 장애 fallback으로 사용하지 않는다.
@@ -39,20 +41,24 @@ BUY/SELL을 차트에서 검토한 뒤 실시간 Telegram 알림으로 이어갈
 ## Confirmed flow
 
 1. 사용자가 한국/미국과 이름·티커를 선택해 TOSS 상장 종목을 검색한다.
-2. 종목을 선택하고 검색형 preset에서 진입·필터·청산을 Rule Chain에 계속 추가하거나 자연어
+2. 전체 Entry 추천과 실제 데이터 기간을 검토하고, 추천을 적용하거나 직접 검색형 preset에서
+   진입·필터·청산을 Rule Chain에 계속 추가하거나 자연어
    v3 후보를 검토한다.
 3. KLineChart에서 실제 candle, 지표와 drawing을 조작한다.
 4. 전략·종목 snapshot·chart 설정을 JSON으로 저장하고 view/import/export/수정/삭제한다.
 5. 저장 view에서 paper backtest를 실행해 BUY/SELL marker와 동일 정보의 표를 검토하고,
    summary 이력과 full JSON snapshot을 다시 열거나 삭제한다.
-6. Telegram을 연결하고 별도 monitor를 실행한 뒤 해당 전략의 실시간 감시를 켠다.
+6. Telegram을 연결하고 추천 또는 저장 전략의 tracking을 켠다. local release monitor가 변경을
+   60초 안에 반영한다.
 
 ## Explicit limitations
 
 - WebSocket trade stream은 sequence/snapshot이 없는 lossy feed다. REST candle이 기준이며 실시간
   trade volume을 공식 누적 거래량으로 취급하지 않는다.
-- monitor는 process가 실행되는 동안만 동작한다. v3도 완료 봉만 평가하며 실제 주문은 만들지
-  않는다.
+- monitor는 process가 실행되는 동안만 동작한다. local release가 함께 시작하지만 sleep/reboot와
+  crash 자동 복구는 없다. v3도 완료 봉만 평가하며 실제 주문은 만들지 않는다.
+- 추천은 선택한 역사 구간의 in-sample 총수익률 순위이며 미래 성과, parameter 최적화 또는
+  survivorship bias 해결을 의미하지 않는다.
 - provider가 반환한 session/adjusted candle을 사용하며 독립 exchange calendar, 환율,
   상장폐지와 기업행위 재구성은 아직 없다.
 - 신호와 backtest는 투자 조언이나 주문이 아니다. 계좌·주문 API는 호출하지 않는다.
@@ -80,4 +86,4 @@ BUY/SELL을 차트에서 검토한 뒤 실시간 Telegram 알림으로 이어갈
 
 - 감시할 Strategy v2 청산 설정 선택 UI와 여러 청산 설정 동시 감시 여부
 - 독립 거래소 달력, 장중 휴장/조기 종료, 환율과 기업행위 보강 공급자
-- 로컬 process supervisor/자동 시작과 공개 배포를 할 경우의 Supabase Auth·owner RLS 운영 모델
+- Mac reboot/crash supervisor와 공개 배포를 할 경우의 Supabase Auth·owner RLS 운영 모델
