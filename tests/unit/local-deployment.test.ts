@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   isHealthyCatalog,
   isHealthyCompilerResult,
+  isHealthyMonitorStatus,
+  isOwnedRunningLocalMonitorProcess,
   isOwnedRunningLocalProductionProcess,
+  localMonitorCommand,
   localNextCommand,
+  matchesLocalMonitorDeploymentState,
   matchesLocalDeploymentState,
   parseLocalDeploymentPort,
   parseLocalDeploymentState,
@@ -31,6 +35,33 @@ describe("local deployment safety contract", () => {
       "-p",
       "3000",
     ]);
+    expect(localMonitorCommand(repositoryRoot)).toEqual([
+      process.execPath,
+      `${repositoryRoot}/node_modules/tsx/dist/cli.mjs`,
+      `${repositoryRoot}/scripts/live-monitor.ts`,
+    ]);
+  });
+
+  it("recognizes only the repository-local long-running monitor command", () => {
+    const processInfo = {
+      command: `${process.execPath} ${repositoryRoot}/node_modules/tsx/dist/cli.mjs ${repositoryRoot}/scripts/live-monitor.ts`,
+      cwd: repositoryRoot,
+      startedAt: "Tue Sep  1 14:00:01 2026",
+    };
+    expect(isOwnedRunningLocalMonitorProcess(processInfo, repositoryRoot)).toBe(true);
+    expect(
+      isOwnedRunningLocalMonitorProcess(
+        { ...processInfo, cwd: "/Users/example/AnotherApp" },
+        repositoryRoot,
+      ),
+    ).toBe(false);
+    expect(
+      matchesLocalMonitorDeploymentState(
+        processInfo,
+        { monitorProcessStartedAt: processInfo.startedAt },
+        repositoryRoot,
+      ),
+    ).toBe(true);
   });
 
   it("recognizes a renamed next-server process only with matching cwd and loopback listener", () => {
@@ -100,6 +131,27 @@ describe("local deployment safety contract", () => {
     ).toThrow(/loopback/);
   });
 
+  it("parses the managed server and monitor state while retaining v1 rollback compatibility", () => {
+    const state = parseLocalDeploymentState(
+      JSON.stringify({
+        version: 2,
+        pid: 1234,
+        monitorPid: 1235,
+        port: 3000,
+        host: "127.0.0.1",
+        repositoryRoot,
+        commit: "f390fa0425c9528c29eb299b15d452a9467571bd",
+        dirty: false,
+        processStartedAt: "Tue Sep  1 14:00:00 2026",
+        monitorProcessStartedAt: "Tue Sep  1 14:00:01 2026",
+        startedAt: "2026-09-01T03:00:00.000Z",
+      }),
+      repositoryRoot,
+    );
+
+    expect(state).toMatchObject({ version: 2, pid: 1234, monitorPid: 1235 });
+  });
+
   it("requires the complete catalog and a multi-entry compiler result for health", () => {
     expect(isHealthyCatalog({ counts: { entry: 42, filter: 8, exit: 20, total: 70 } })).toBe(true);
     expect(isHealthyCatalog({ counts: { entry: 2, filter: 8, exit: 20, total: 30 } })).toBe(false);
@@ -121,5 +173,20 @@ describe("local deployment safety contract", () => {
         strategy: { version: 3, entry: { children: [{}] }, filters: { children: [] }, exits: [] },
       }),
     ).toBe(false);
+
+    const heartbeatAt = "2026-09-01T03:00:00.000Z";
+    const monitor = {
+      status: "connected",
+      heartbeatAt,
+      enabledStrategies: 1,
+      lastErrorCode: null,
+      providerRequests: 2,
+      datasetCacheHits: 3,
+    };
+    expect(isHealthyMonitorStatus(monitor, Date.parse(heartbeatAt))).toBe(true);
+    expect(isHealthyMonitorStatus({ ...monitor, status: "error" }, Date.parse(heartbeatAt))).toBe(
+      false,
+    );
+    expect(isHealthyMonitorStatus(monitor, Date.parse(heartbeatAt) + 1)).toBe(false);
   });
 });

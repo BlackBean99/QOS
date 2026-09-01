@@ -4,19 +4,28 @@ import { z } from "zod";
 export const LOCAL_DEPLOYMENT_HOST = "127.0.0.1" as const;
 export const DEFAULT_LOCAL_DEPLOYMENT_PORT = 3000;
 
-const LocalDeploymentStateSchema = z
-  .object({
-    version: z.literal(1),
-    pid: z.number().int().positive(),
-    port: z.number().int().min(1024).max(65535),
-    host: z.literal(LOCAL_DEPLOYMENT_HOST),
-    repositoryRoot: z.string().trim().min(1),
-    commit: z.string().regex(/^[a-f0-9]{40}$/),
-    dirty: z.boolean().default(false),
-    processStartedAt: z.string().trim().min(1),
-    startedAt: z.iso.datetime({ offset: true }),
-  })
-  .strict();
+const LocalDeploymentStateBase = {
+  pid: z.number().int().positive(),
+  port: z.number().int().min(1024).max(65535),
+  host: z.literal(LOCAL_DEPLOYMENT_HOST),
+  repositoryRoot: z.string().trim().min(1),
+  commit: z.string().regex(/^[a-f0-9]{40}$/),
+  dirty: z.boolean().default(false),
+  processStartedAt: z.string().trim().min(1),
+  startedAt: z.iso.datetime({ offset: true }),
+} as const;
+
+const LocalDeploymentStateSchema = z.discriminatedUnion("version", [
+  z.object({ version: z.literal(1), ...LocalDeploymentStateBase }).strict(),
+  z
+    .object({
+      version: z.literal(2),
+      ...LocalDeploymentStateBase,
+      monitorPid: z.number().int().positive(),
+      monitorProcessStartedAt: z.string().trim().min(1),
+    })
+    .strict(),
+]);
 
 export type LocalDeploymentState = z.infer<typeof LocalDeploymentStateSchema>;
 
@@ -65,6 +74,37 @@ export function localNextCommand(repositoryRoot: string, port: number): string[]
     "-p",
     String(port),
   ];
+}
+
+export function localMonitorCommand(repositoryRoot: string): string[] {
+  return [
+    process.execPath,
+    path.join(repositoryRoot, "node_modules", "tsx", "dist", "cli.mjs"),
+    path.join(repositoryRoot, "scripts", "live-monitor.ts"),
+  ];
+}
+
+export function isOwnedRunningLocalMonitorProcess(
+  processInfo: { command: string; cwd: string },
+  repositoryRoot: string,
+): boolean {
+  const [, cli, script] = localMonitorCommand(repositoryRoot);
+  return (
+    path.resolve(processInfo.cwd) === path.resolve(repositoryRoot) &&
+    processInfo.command.includes(cli) &&
+    processInfo.command.includes(script)
+  );
+}
+
+export function matchesLocalMonitorDeploymentState(
+  processInfo: { command: string; cwd: string; startedAt: string },
+  state: { monitorProcessStartedAt: string },
+  repositoryRoot: string,
+): boolean {
+  return (
+    processInfo.startedAt === state.monitorProcessStartedAt &&
+    isOwnedRunningLocalMonitorProcess(processInfo, repositoryRoot)
+  );
 }
 
 export function isOwnedRunningLocalProductionProcess(
@@ -121,10 +161,26 @@ const CompilerHealthSchema = z
   })
   .passthrough();
 
+const MonitorHealthSchema = z
+  .object({
+    status: z.enum(["stopped", "connecting", "connected", "reconnecting"]),
+    heartbeatAt: z.iso.datetime({ offset: true }),
+    enabledStrategies: z.number().int().nonnegative(),
+    lastErrorCode: z.null(),
+    providerRequests: z.number().int().nonnegative(),
+    datasetCacheHits: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
 export function isHealthyCatalog(value: unknown): boolean {
   return CatalogHealthSchema.safeParse(value).success;
 }
 
 export function isHealthyCompilerResult(value: unknown): boolean {
   return CompilerHealthSchema.safeParse(value).success;
+}
+
+export function isHealthyMonitorStatus(value: unknown, minimumHeartbeatEpoch: number): boolean {
+  const parsed = MonitorHealthSchema.safeParse(value);
+  return parsed.success && Date.parse(parsed.data.heartbeatAt) >= minimumHeartbeatEpoch;
 }

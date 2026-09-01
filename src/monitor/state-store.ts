@@ -19,6 +19,10 @@ const StateSchema = z
     heartbeatAt: z.iso.datetime({ offset: true }).nullable(),
     enabledStrategies: z.number().int().nonnegative(),
     lastErrorCode: z.string().max(80).nullable(),
+    providerRequests: z.number().int().nonnegative().default(0),
+    datasetCacheHits: z.number().int().nonnegative().default(0),
+    lastProviderSyncAt: z.iso.datetime({ offset: true }).nullable().default(null),
+    lastStrategyRefreshAt: z.iso.datetime({ offset: true }).nullable().default(null),
     deliveries: z.record(z.string().max(300), DeliverySchema),
   })
   .strict();
@@ -32,8 +36,19 @@ const EMPTY_STATE: MonitorState = {
   heartbeatAt: null,
   enabledStrategies: 0,
   lastErrorCode: null,
+  providerRequests: 0,
+  datasetCacheHits: 0,
+  lastProviderSyncAt: null,
+  lastStrategyRefreshAt: null,
   deliveries: {},
 };
+
+export interface MonitorTelemetry {
+  providerRequests: number;
+  datasetCacheHits: number;
+  lastProviderSyncAt: string | null;
+  lastStrategyRefreshAt: string | null;
+}
 
 export class MonitorStateStore {
   readonly #filePath: string;
@@ -118,6 +133,7 @@ export class MonitorStateStore {
     status: MonitorStatus,
     enabledStrategies: number,
     errorCode: string | null = null,
+    telemetry?: MonitorTelemetry,
   ): Promise<void> {
     await this.#mutate((state) => ({
       ...state,
@@ -125,6 +141,7 @@ export class MonitorStateStore {
       heartbeatAt: new Date().toISOString(),
       enabledStrategies,
       lastErrorCode: errorCode,
+      ...(telemetry ?? {}),
     }));
   }
 
@@ -135,6 +152,10 @@ export class MonitorStateStore {
     deliveredSignals: number;
     failedSignals: number;
     lastErrorCode: string | null;
+    providerRequests: number;
+    datasetCacheHits: number;
+    lastProviderSyncAt: string | null;
+    lastStrategyRefreshAt: string | null;
   }> {
     const state = await this.#read();
     const values = Object.values(state.deliveries);
@@ -145,6 +166,10 @@ export class MonitorStateStore {
       deliveredSignals: values.filter((delivery) => delivery.status === "sent").length,
       failedSignals: values.filter((delivery) => delivery.status === "failed").length,
       lastErrorCode: state.lastErrorCode,
+      providerRequests: state.providerRequests,
+      datasetCacheHits: state.datasetCacheHits,
+      lastProviderSyncAt: state.lastProviderSyncAt,
+      lastStrategyRefreshAt: state.lastStrategyRefreshAt,
     };
   }
 }

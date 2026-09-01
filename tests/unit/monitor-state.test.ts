@@ -33,12 +33,21 @@ describe("MonitorStateStore", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "qos-monitor-"));
     directories.push(directory);
     const store = new MonitorStateStore({ filePath: path.join(directory, "state.json") });
-    await store.heartbeat("connected", 2);
+    await store.heartbeat("connected", 2, null, {
+      providerRequests: 7,
+      datasetCacheHits: 11,
+      lastProviderSyncAt: "2026-09-01T03:00:00.000Z",
+      lastStrategyRefreshAt: "2026-09-01T02:59:00.000Z",
+    });
 
     await expect(store.publicStatus()).resolves.toMatchObject({
       status: "connected",
       enabledStrategies: 2,
       deliveredSignals: 0,
+      providerRequests: 7,
+      datasetCacheHits: 11,
+      lastProviderSyncAt: "2026-09-01T03:00:00.000Z",
+      lastStrategyRefreshAt: "2026-09-01T02:59:00.000Z",
     });
   });
 });

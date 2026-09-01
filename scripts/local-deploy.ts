@@ -9,8 +9,12 @@ import {
   LOCAL_DEPLOYMENT_HOST,
   isHealthyCatalog,
   isHealthyCompilerResult,
+  isHealthyMonitorStatus,
+  isOwnedRunningLocalMonitorProcess,
   isOwnedRunningLocalProductionProcess,
+  localMonitorCommand,
   localNextCommand,
+  matchesLocalMonitorDeploymentState,
   matchesLocalDeploymentState,
   parseLocalDeploymentPort,
   parseLocalDeploymentState,
@@ -29,6 +33,18 @@ interface RunningProcessInfo {
   command: string;
   cwd: string;
   listener: string;
+  startedAt: string;
+}
+
+interface RunningMonitorInfo {
+  command: string;
+  cwd: string;
+  startedAt: string;
+}
+
+interface RunningServerIdentity {
+  command: string;
+  cwd: string;
   startedAt: string;
 }
 
@@ -133,6 +149,47 @@ async function inspectProcess(pid: number, port: number): Promise<RunningProcess
   return { command: processCommand, startedAt, cwd, listener };
 }
 
+async function inspectServerIdentity(pid: number): Promise<RunningServerIdentity | null> {
+  if (!(await processExists(pid))) return null;
+  const [processCommand, startedAt, cwdOutput] = await Promise.all([
+    processOutput("/bin/ps", ["-p", String(pid), "-o", "command="]),
+    processOutput("/bin/ps", ["-p", String(pid), "-o", "lstart="]),
+    processOutput("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]),
+  ]);
+  const cwd = cwdOutput
+    ?.split("\n")
+    .find((line) => line.startsWith("n"))
+    ?.slice(1);
+  if (!processCommand || !startedAt || !cwd) return null;
+  return { command: processCommand, startedAt, cwd };
+}
+
+function matchesServerIdentity(
+  processInfo: RunningServerIdentity,
+  state: LocalDeploymentState,
+): boolean {
+  return (
+    processInfo.startedAt === state.processStartedAt &&
+    /^next-server \(v\d+\.\d+\.\d+\)$/.test(processInfo.command.trim()) &&
+    path.resolve(processInfo.cwd) === path.resolve(repositoryRoot)
+  );
+}
+
+async function inspectMonitorProcess(pid: number): Promise<RunningMonitorInfo | null> {
+  if (!(await processExists(pid))) return null;
+  const [processCommand, startedAt, cwdOutput] = await Promise.all([
+    processOutput("/bin/ps", ["-p", String(pid), "-o", "command="]),
+    processOutput("/bin/ps", ["-p", String(pid), "-o", "lstart="]),
+    processOutput("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]),
+  ]);
+  const cwd = cwdOutput
+    ?.split("\n")
+    .find((line) => line.startsWith("n"))
+    ?.slice(1);
+  if (!processCommand || !startedAt || !cwd) return null;
+  return { command: processCommand, startedAt, cwd };
+}
+
 function assertOwnedProcess(
   state: LocalDeploymentState,
   processInfo: RunningProcessInfo | null,
@@ -140,6 +197,16 @@ function assertOwnedProcess(
   if (!processInfo) throw new Error("Managed local production process is not running.");
   if (!matchesLocalDeploymentState(processInfo, state, repositoryRoot)) {
     throw new Error("Refusing to manage a PID that is not the owned QOS loopback server.");
+  }
+}
+
+function assertOwnedMonitorProcess(
+  state: Extract<LocalDeploymentState, { version: 2 }>,
+  processInfo: RunningMonitorInfo | null,
+): asserts processInfo is RunningMonitorInfo {
+  if (!processInfo) throw new Error("Managed local monitor process is not running.");
+  if (!matchesLocalMonitorDeploymentState(processInfo, state, repositoryRoot)) {
+    throw new Error("Refusing to manage a PID that is not the owned QOS monitor worker.");
   }
 }
 
@@ -156,23 +223,47 @@ async function stopManagedServer(): Promise<"stopped" | "already-stopped" | "sta
   const state = await readLocalState();
   if (!state) return "already-stopped";
   const processInfo = await inspectProcess(state.pid, state.port);
-  if (!processInfo) {
-    if (await processExists(state.pid)) {
-      throw new Error(
-        "Managed process is still running, but its ownership could not be verified. Refusing to remove its state.",
-      );
-    }
+  const serverIdentity = processInfo ?? (await inspectServerIdentity(state.pid));
+  const monitorInfo = state.version === 2 ? await inspectMonitorProcess(state.monitorPid) : null;
+  if (serverIdentity && !matchesServerIdentity(serverIdentity, state)) {
+    throw new Error(
+      "Managed process is still running, but its ownership could not be verified. Refusing to manage it.",
+    );
+  }
+  if (state.version === 2 && !monitorInfo && (await processExists(state.monitorPid))) {
+    throw new Error(
+      "Managed monitor is still running, but its ownership could not be verified. Refusing to manage it.",
+    );
+  }
+  if (!serverIdentity && !monitorInfo) {
     await removeState();
     return "stale-state";
   }
-  assertOwnedProcess(state, processInfo);
-  process.kill(state.pid, "SIGTERM");
-  if (!(await waitForExit(state.pid, 5_000))) {
-    const stillRunning = await inspectProcess(state.pid, state.port);
-    assertOwnedProcess(state, stillRunning);
-    process.kill(state.pid, "SIGKILL");
-    if (!(await waitForExit(state.pid, 2_000))) {
-      throw new Error("Owned local production process did not stop.");
+  if (processInfo) assertOwnedProcess(state, processInfo);
+  if (state.version === 2 && monitorInfo) assertOwnedMonitorProcess(state, monitorInfo);
+
+  if (state.version === 2 && monitorInfo) {
+    process.kill(state.monitorPid, "SIGTERM");
+    if (!(await waitForExit(state.monitorPid, 5_000))) {
+      const stillRunning = await inspectMonitorProcess(state.monitorPid);
+      assertOwnedMonitorProcess(state, stillRunning);
+      process.kill(state.monitorPid, "SIGKILL");
+      if (!(await waitForExit(state.monitorPid, 2_000))) {
+        throw new Error("Owned local monitor process did not stop.");
+      }
+    }
+  }
+  if (serverIdentity) {
+    process.kill(state.pid, "SIGTERM");
+    if (!(await waitForExit(state.pid, 5_000))) {
+      const stillRunning = await inspectServerIdentity(state.pid);
+      if (!stillRunning || !matchesServerIdentity(stillRunning, state)) {
+        throw new Error("Owned local production process identity changed while stopping.");
+      }
+      process.kill(state.pid, "SIGKILL");
+      if (!(await waitForExit(state.pid, 2_000))) {
+        throw new Error("Owned local production process did not stop.");
+      }
     }
   }
   await removeState();
@@ -250,6 +341,48 @@ async function waitForHealth(port: number, pid: number): Promise<void> {
   throw new Error(`Local production health timed out: ${lastError}`);
 }
 
+async function waitForMonitorHealth(port: number, pid: number, launchedAt: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  let lastError = "monitor heartbeat did not respond";
+  while (Date.now() < deadline) {
+    if (!(await processExists(pid)))
+      throw new Error("Local monitor process exited during startup.");
+    try {
+      const response = await fetch(`http://${LOCAL_DEPLOYMENT_HOST}:${port}/api/monitor/status`, {
+        signal: AbortSignal.timeout(2_000),
+      });
+      const body = await readJson(response, "Monitor");
+      if (isHealthyMonitorStatus(body, launchedAt)) {
+        return;
+      }
+      lastError = "monitor status is unhealthy or its heartbeat is stale";
+    } catch (error) {
+      lastError = safeMessage(error);
+    }
+    await wait(250);
+  }
+  throw new Error(`Local monitor health timed out: ${lastError}`);
+}
+
+async function spawnLogged(commandLine: string[]): Promise<number> {
+  const log = await open(logPath, "a", 0o600);
+  const [executable, ...args] = commandLine;
+  const child = spawn(executable, args, {
+    cwd: repositoryRoot,
+    detached: true,
+    env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+    stdio: ["ignore", log.fd, log.fd],
+  });
+  const pid = child.pid;
+  if (!pid) {
+    await log.close();
+    throw new Error("Failed to obtain a local process id.");
+  }
+  child.unref();
+  await log.close();
+  return pid;
+}
+
 async function gitMetadata(): Promise<{ commit: string; dirty: boolean }> {
   const commit = (
     await execFile("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot })
@@ -274,37 +407,33 @@ async function deploy(): Promise<void> {
     mode: 0o600,
   });
   await chmod(logPath, 0o600);
-  const log = await open(logPath, "a", 0o600);
-  const [executable, ...args] = localNextCommand(repositoryRoot, port);
-  const child = spawn(executable, args, {
-    cwd: repositoryRoot,
-    detached: true,
-    env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
-    stdio: ["ignore", log.fd, log.fd],
-  });
-  const pid = child.pid;
-  if (!pid) {
-    await log.close();
-    throw new Error("Failed to obtain the local production process id.");
-  }
-  child.unref();
-  await log.close();
+  const pid = await spawnLogged(localNextCommand(repositoryRoot, port));
+  let monitorPid: number | null = null;
   try {
     await waitForHealth(port, pid);
     const processInfo = await inspectProcess(pid, port);
     if (!processInfo || !isOwnedRunningLocalProductionProcess(processInfo, repositoryRoot, port)) {
       throw new Error("Started process did not match the QOS loopback ownership contract.");
     }
+    const monitorLaunchedAt = Date.now();
+    monitorPid = await spawnLogged(localMonitorCommand(repositoryRoot));
+    await waitForMonitorHealth(port, monitorPid, monitorLaunchedAt);
+    const monitorInfo = await inspectMonitorProcess(monitorPid);
+    if (!monitorInfo || !isOwnedRunningLocalMonitorProcess(monitorInfo, repositoryRoot)) {
+      throw new Error("Started process did not match the QOS monitor ownership contract.");
+    }
     const source = await gitMetadata();
     const state: LocalDeploymentState = {
-      version: 1,
+      version: 2,
       pid,
+      monitorPid,
       port,
       host: LOCAL_DEPLOYMENT_HOST,
       repositoryRoot,
       commit: source.commit,
       dirty: source.dirty,
       processStartedAt: processInfo.startedAt,
+      monitorProcessStartedAt: monitorInfo.startedAt,
       startedAt: new Date().toISOString(),
     };
     await writeLocalState(state);
@@ -315,6 +444,7 @@ async function deploy(): Promise<void> {
           previous,
           url: `http://${LOCAL_DEPLOYMENT_HOST}:${port}`,
           pid,
+          monitorPid,
           commit: source.commit,
           dirty: source.dirty,
           log: logPath,
@@ -324,6 +454,16 @@ async function deploy(): Promise<void> {
       ),
     );
   } catch (error) {
+    if (monitorPid && (await processExists(monitorPid))) {
+      process.kill(monitorPid, "SIGTERM");
+      if (!(await waitForExit(monitorPid, 2_000))) {
+        const monitorInfo = await inspectMonitorProcess(monitorPid);
+        if (monitorInfo && isOwnedRunningLocalMonitorProcess(monitorInfo, repositoryRoot)) {
+          process.kill(monitorPid, "SIGKILL");
+          await waitForExit(monitorPid, 2_000);
+        }
+      }
+    }
     if (await processExists(pid)) {
       process.kill(pid, "SIGTERM");
       if (!(await waitForExit(pid, 2_000))) {
@@ -344,12 +484,20 @@ async function status(): Promise<void> {
   const processInfo = await inspectProcess(state.pid, state.port);
   assertOwnedProcess(state, processInfo);
   await checkHealth(state.port);
+  let monitorPid: number | null = null;
+  if (state.version === 2) {
+    const monitorInfo = await inspectMonitorProcess(state.monitorPid);
+    assertOwnedMonitorProcess(state, monitorInfo);
+    await waitForMonitorHealth(state.port, state.monitorPid, Date.now() - 120_000);
+    monitorPid = state.monitorPid;
+  }
   console.log(
     JSON.stringify(
       {
         status: "healthy",
         url: `http://${state.host}:${state.port}`,
         pid: state.pid,
+        monitorPid,
         commit: state.commit,
         dirty: state.dirty,
         startedAt: state.startedAt,

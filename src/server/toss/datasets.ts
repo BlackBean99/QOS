@@ -14,24 +14,33 @@ interface LoadOptions {
   maxPages?: number;
 }
 
+interface ProviderRequestTelemetry {
+  providerRequests: number;
+}
+
 async function loadPages(
   client: TossClient,
   symbol: string,
   interval: "1m" | "1d",
   targetCandles: number,
   maxPages: number,
-): Promise<MarketCandle[]> {
+): Promise<{ candles: MarketCandle[]; providerRequests: number }> {
   const candles = new Map<string, MarketCandle>();
   let before: string | undefined;
+  let providerRequests = 0;
   for (let pageNumber = 0; pageNumber < maxPages && candles.size < targetCandles; pageNumber += 1) {
     const page = await client.getCandles({ symbol, interval, count: 200, before, adjusted: true });
+    providerRequests += 1;
     for (const candle of page.candles) candles.set(candle.timestamp, candle);
     if (!page.nextBefore || page.nextBefore === before) break;
     before = page.nextBefore;
   }
-  return [...candles.values()].toSorted(
-    (left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp),
-  );
+  return {
+    candles: [...candles.values()].toSorted(
+      (left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp),
+    ),
+    providerRequests,
+  };
 }
 
 function metadata(instrument: InstrumentSnapshot): MarketFixture["meta"] {
@@ -57,32 +66,33 @@ export function loadTossDataset(
   instrument: InstrumentSnapshot,
   timeframe: "1d",
   options?: LoadOptions,
-): Promise<MarketFixture>;
+): Promise<MarketFixture & ProviderRequestTelemetry>;
 export function loadTossDataset(
   client: TossClient,
   instrument: InstrumentSnapshot,
   timeframe: "5m",
   options?: LoadOptions,
-): Promise<IntradayFixture>;
+): Promise<IntradayFixture & ProviderRequestTelemetry>;
 export async function loadTossDataset(
   client: TossClient,
   instrument: InstrumentSnapshot,
   timeframe: "1d" | "5m",
   options: LoadOptions = {},
-): Promise<MarketFixture | IntradayFixture> {
+): Promise<(MarketFixture | IntradayFixture) & ProviderRequestTelemetry> {
   const targetBars = Math.max(1, options.targetBars ?? (timeframe === "1d" ? 200 : 1_200));
   const providerTarget = timeframe === "5m" ? targetBars * 5 : targetBars;
   const maxPages = Math.max(
     1,
     Math.min(40, options.maxPages ?? Math.ceil(providerTarget / 200) + 1),
   );
-  const source = await loadPages(
+  const loaded = await loadPages(
     client,
     instrument.symbol,
     timeframe === "5m" ? "1m" : "1d",
     providerTarget,
     maxPages,
   );
+  const source = loaded.candles;
   const candles =
     timeframe === "5m"
       ? aggregateFiveMinuteCandles(source).map((candle) => ({
@@ -101,7 +111,7 @@ export async function loadTossDataset(
           close: candle.close,
           volume: candle.volume,
         }));
-  const result = { meta: metadata(instrument), candles };
+  const result = { meta: metadata(instrument), candles, providerRequests: loaded.providerRequests };
   return timeframe === "5m" ? { ...result, timeframe } : result;
 }
 
@@ -179,20 +189,21 @@ export async function loadTossStrategyDataset(
   instrument: InstrumentSnapshot,
   timeframe: StrategyTimeframe,
   options: LoadOptions = {},
-): Promise<MarketFixture & { timeframe: StrategyTimeframe }> {
+): Promise<MarketFixture & { timeframe: StrategyTimeframe } & ProviderRequestTelemetry> {
   const targetBars = Math.max(1, options.targetBars ?? 1_200);
   const minutes = intradayMinutes[timeframe];
   const sourceInterval = minutes ? ("1m" as const) : ("1d" as const);
   const providerTarget = minutes
     ? Math.min(8_000, targetBars * minutes)
     : Math.min(8_000, targetBars * (timeframe === "1w" ? 5 : 1));
-  const source = await loadPages(
+  const loaded = await loadPages(
     client,
     instrument.symbol,
     sourceInterval,
     providerTarget,
     Math.max(1, Math.min(40, options.maxPages ?? Math.ceil(providerTarget / 200) + 1)),
   );
+  const source = loaded.candles;
   const sessionOpen = instrument.currency === "KRW" ? 9 * 60 : 9 * 60 + 30;
   const candles = minutes
     ? aggregateSessionAligned(source, minutes, instrument.timezone, sessionOpen)
@@ -206,5 +217,10 @@ export async function loadTossStrategyDataset(
           close: candle.close,
           volume: candle.volume,
         }));
-  return { meta: metadata(instrument), timeframe, candles: candles.slice(-targetBars) };
+  return {
+    meta: metadata(instrument),
+    timeframe,
+    candles: candles.slice(-targetBars),
+    providerRequests: loaded.providerRequests,
+  };
 }
