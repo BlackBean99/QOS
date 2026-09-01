@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import type { BacktestResultV3 } from "@/src/domain/backtest-v3/engine";
+import type { BacktestWindowInput } from "@/src/domain/backtest-window";
 import type { InstrumentSummary } from "@/src/domain/instruments";
 import { createInstrumentSnapshot } from "@/src/domain/stored-strategy";
 import {
@@ -34,6 +35,7 @@ interface Props {
   initialStrategy?: StrategyDefinitionV3 | null;
   onStrategyChange: (strategy: StrategyDefinitionV3 | null) => void;
   onResult: (result: BacktestResultV3) => void;
+  backtestWindow?: BacktestWindowInput;
 }
 
 const roles: Array<{ value: "ALL" | StrategyCatalogRole; label: string }> = [
@@ -971,6 +973,7 @@ export function StrategyEngineWorkbench({
   initialStrategy,
   onStrategyChange,
   onResult,
+  backtestWindow,
 }: Props) {
   const [strategy, setStrategy] = useState<StrategyDefinitionV3 | null>(initialStrategy ?? null);
   const [query, setQuery] = useState("");
@@ -1150,7 +1153,13 @@ export function StrategyEngineWorkbench({
       const response = await fetch("/api/strategy-engine/backtests", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ strategies, instrument: createInstrumentSnapshot(instrument) }),
+        body: JSON.stringify({
+          strategies,
+          instrument: createInstrumentSnapshot(instrument),
+          ...(backtestWindow?.startDate && backtestWindow.endDate
+            ? { window: backtestWindow }
+            : {}),
+        }),
       });
       const payload = (await response.json()) as {
         kind?: "single" | "comparison";

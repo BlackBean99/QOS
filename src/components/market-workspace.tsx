@@ -7,8 +7,13 @@ import type { ResearchComparisonResult } from "@/src/domain/advanced-backtest";
 import type { ResearchStrategy } from "@/src/domain/advanced-strategy";
 import type { BacktestResult } from "@/src/domain/backtest";
 import type { BacktestResultV3 } from "@/src/domain/backtest-v3/engine";
+import type { BacktestWindowInput } from "@/src/domain/backtest-window";
 import { InstrumentSummarySchema, type InstrumentSummary } from "@/src/domain/instruments";
-import type { ChartSettings, StoredStrategy } from "@/src/domain/stored-strategy";
+import {
+  createInstrumentSnapshot,
+  type ChartSettings,
+  type StoredStrategy,
+} from "@/src/domain/stored-strategy";
 import type { Strategy } from "@/src/domain/strategy";
 import type { StrategyDefinitionV3, StrategyTimeframe } from "@/src/domain/strategy-v3/schema";
 import type { DecisionTrace } from "@/src/domain/strategy-runtime/rules";
@@ -18,6 +23,11 @@ import { StrategyLibrary } from "./strategy-library";
 import { StrategyWorkbench } from "./strategy-workbench";
 import { StrategyEngineWorkbench } from "./strategy-engine/strategy-engine-workbench";
 import { TelegramSettings } from "./telegram-settings";
+import {
+  StrategyRecommendationPanel,
+  type BacktestWindowDraft,
+  type RecommendationCandidate,
+} from "./strategy-recommendation-panel";
 
 type ExecutableStrategy = Strategy | ResearchStrategy | StrategyDefinitionV3;
 
@@ -170,6 +180,11 @@ export function MarketWorkspace() {
   const [currentStrategy, setCurrentStrategy] = useState<ExecutableStrategy | null>(null);
   const [runStatus, setRunStatus] = useState<string>("");
   const [workbenchKey, setWorkbenchKey] = useState(0);
+  const [libraryKey, setLibraryKey] = useState(0);
+  const [backtestWindow, setBacktestWindow] = useState<BacktestWindowDraft>({
+    startDate: "",
+    endDate: "",
+  });
   const searchRequestRef = useRef(0);
 
   const handleChartChange = useCallback((next: ChartSettings) => setChart(next), []);
@@ -268,9 +283,62 @@ export function MarketWorkspace() {
     setRunStatus("");
     setChart(DEFAULT_CHART);
     setWorkbenchKey((value) => value + 1);
+    setBacktestWindow({ startDate: "", endDate: "" });
     requestAnimationFrame(() =>
       document.querySelector<HTMLElement>("#market-chart-title")?.focus?.(),
     );
+  }
+
+  function applyRecommendation(candidate: RecommendationCandidate) {
+    const next = candidate.strategy;
+    setCurrentStrategy(next);
+    setSignals([]);
+    setLevels([]);
+    setChart((current) => ({
+      ...current,
+      ...chartIndicatorsForV3(next),
+      period: chartPeriod(next.timeframe),
+      visibleRange: null,
+    }));
+    setRunStatus(
+      `${candidate.presetName} 추천을 적용했습니다. Rule Chain과 Exit를 수정한 뒤 백테스트하세요.`,
+    );
+    setWorkbenchKey((value) => value + 1);
+  }
+
+  async function trackRecommendation(
+    candidate: RecommendationCandidate,
+    analyzedWindow: { startDate: string; endDate: string },
+  ) {
+    if (!selected) throw new Error("트래킹할 종목을 다시 선택해 주세요.");
+    const next = candidate.strategy;
+    const response = await fetch("/api/strategies", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: `[추천] ${candidate.presetName} · ${selected.symbol}`.slice(0, 100),
+        description: `전체 Entry 후보 비교에서 선택한 과거 수익률 추천 · ${analyzedWindow.startDate} — ${analyzedWindow.endDate}`,
+        instrument: createInstrumentSnapshot(selected),
+        strategy: next,
+        chart: {
+          ...chart,
+          ...chartIndicatorsForV3(next),
+          period: chartPeriod(next.timeframe),
+          visibleRange: null,
+        },
+        monitor: { enabled: true, interval: next.timeframe },
+      }),
+    });
+    const payload = (await response.json()) as {
+      strategy?: StoredStrategy;
+      error?: { message?: string };
+    };
+    if (!response.ok || !payload.strategy) {
+      throw new Error(payload.error?.message ?? "추천 전략을 저장하지 못했습니다.");
+    }
+    applyRecommendation(candidate);
+    setLibraryKey((value) => value + 1);
+    setRunStatus(`“${payload.strategy.name}” 저장 완료 · paper tracking ON`);
   }
 
   function loadStored(document: StoredStrategy) {
@@ -294,6 +362,9 @@ export function MarketWorkspace() {
       const response = await fetch(`/api/strategies/${document.id}/backtests`, {
         method: "POST",
         headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...(backtestWindow.startDate && backtestWindow.endDate ? { window: backtestWindow } : {}),
+        }),
       });
       const payload = (await response.json()) as {
         result?: BacktestResult | ResearchComparisonResult;
@@ -429,10 +500,19 @@ export function MarketWorkspace() {
             <span>
               <b>선택 종목</b> {selected.displayName} · {selected.symbol}
             </span>
-            <a href="#market-chart-title">02 차트</a>
-            <a href="#strategy-builder">03 전략</a>
-            <a href="#strategy-library">04 저장</a>
+            <a href="#strategy-recommendation">02 추천</a>
+            <a href="#market-chart-title">03 차트</a>
+            <a href="#strategy-builder">04 전략</a>
+            <a href="#strategy-library">05 저장</a>
           </nav>
+          <StrategyRecommendationPanel
+            key={selected.instrumentId}
+            instrument={selected}
+            backtestWindow={backtestWindow}
+            onWindowChange={setBacktestWindow}
+            onApply={applyRecommendation}
+            onTrack={trackRecommendation}
+          />
           <MarketChartPanel
             instrument={selected}
             settings={chart}
@@ -493,6 +573,11 @@ export function MarketWorkspace() {
                 setLevels(strategyV3Levels(engine));
                 setRunStatus(`Strategy v3 BUY/SELL ${nextSignals.length}개를 차트에 표시했습니다.`);
               }}
+              backtestWindow={
+                backtestWindow.startDate && backtestWindow.endDate
+                  ? (backtestWindow as BacktestWindowInput)
+                  : undefined
+              }
             />
           )}
         </>
@@ -526,6 +611,7 @@ export function MarketWorkspace() {
         </section>
       )}
       <StrategyLibrary
+        key={libraryKey}
         instrument={selected}
         currentStrategy={currentStrategy}
         chart={chart}

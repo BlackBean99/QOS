@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { createPresetStrategyV3 } from "../src/domain/strategy-v3/catalog";
 
 const instrument = {
   instrumentId: "NASDAQ:NVDA",
@@ -342,6 +343,69 @@ async function installMocks(page: Page) {
         runs.length === 1
           ? { kind: "single", result: runs[0].result }
           : { kind: "comparison", comparison: { runs } },
+    });
+  });
+  await page.route("**/api/strategy-recommendations", async (route) => {
+    const request = route.request().postDataJSON() as {
+      timeframe?: "1m" | "5m" | "15m" | "30m" | "60m" | "4h" | "1d" | "1w";
+      window?: { startDate: string; endDate: string };
+    };
+    const timeframe = request.timeframe ?? "1d";
+    const strategy = createPresetStrategyV3("rolling-vwap-breakout", instrument.instrumentId, {
+      timeframe,
+    });
+    const metrics = {
+      totalReturnPercent: 18.42,
+      maximumDrawdownPercent: 6.1,
+      sharpeRatio: 1.64,
+      numberOfTrades: 14,
+    };
+    const recommendation = {
+      rank: 1,
+      presetId: "rolling-vwap-breakout",
+      presetName: "Rolling VWAP Breakout",
+      category: "VWAP",
+      strategy,
+      metrics,
+    };
+    await route.fulfill({
+      json: {
+        methodology: {
+          catalogVersion: "strategy-v3-entry-42",
+          candidatesEvaluated: 42,
+          ranking: "TOTAL_RETURN_DESC",
+          baselineExit: "ATR 2x stop + 2R target",
+          execution: "bar close signal → next bar open",
+        },
+        window: {
+          source: request.window ? "CUSTOM" : "DEFAULT",
+          startDate: request.window?.startDate ?? "2024-09-01",
+          endDate: request.window?.endDate ?? "2026-09-01",
+          label: request.window
+            ? `${request.window.startDate} — ${request.window.endDate} · 직접 설정`
+            : "2024-09-01 — 2026-09-01 · 자동 설정",
+        },
+        dataPeriod: {
+          start: "2026-07-01T13:30:00.000Z",
+          end: "2026-08-31T20:00:00.000Z",
+          bars: 420,
+        },
+        recommendation,
+        rankings: [
+          recommendation,
+          {
+            ...recommendation,
+            rank: 2,
+            presetId: "ema-crossover",
+            presetName: "EMA / SMA Crossover",
+            category: "TREND",
+            metrics: { ...metrics, totalReturnPercent: 12.2 },
+          },
+        ],
+        warnings: ["선택한 과거 구간의 in-sample 결과이며 미래 수익을 보장하지 않습니다."],
+        cache: "MISS",
+        requestId: "recommendation-e2e",
+      },
     });
   });
   await page.route("**/api/strategies/export", (route) =>
@@ -983,6 +1047,41 @@ test("builds a multi-family Strategy v3 rule chain and explains its paper result
   expect(overflow).toEqual([]);
 });
 
+test("recommends all-entry winner, accepts a custom period and saves tracking ON", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await selectInstrument(page);
+
+  const panel = page.locator("#strategy-recommendation");
+  await expect(panel.getByRole("heading", { name: "과거 수익률 추천" })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Rolling VWAP Breakout" })).toBeVisible();
+  await expect(panel.getByText(/42개 Entry 후보/)).toBeVisible();
+  await panel.getByLabel("분석 시작일").fill("2026-07-01");
+  await expect(panel.getByRole("button", { name: "추천 전략 적용" })).toHaveCount(0);
+  await panel.getByLabel("분석 종료일").fill("2026-08-31");
+  const customRequest = page.waitForRequest("**/api/strategy-recommendations");
+  await panel.getByRole("button", { name: "이 기간으로 다시 분석" }).click();
+  expect((await customRequest).postDataJSON()).toMatchObject({
+    window: { startDate: "2026-07-01", endDate: "2026-08-31" },
+  });
+  await expect(panel.getByText(/2026-07-01.*2026-08-31.*직접 설정/)).toBeVisible();
+
+  await panel.getByRole("button", { name: "추천 전략 적용" }).click();
+  await expect(page.getByLabel("전략 이름")).toHaveValue("Rolling VWAP Breakout");
+  await panel.getByRole("button", { name: "저장하고 트래킹 ON" }).click();
+  await expect(panel.getByRole("status")).toContainText("트래킹 ON");
+  await expect(
+    page.getByRole("button", { name: /추천.*Rolling VWAP Breakout.*엔비디아/ }),
+  ).toBeVisible();
+  expect(
+    (await new AxeBuilder({ page }).include("#strategy-recommendation").analyze()).violations,
+  ).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+
 test("loads older candles on the left once and stops an inclusive repeated cursor", async ({
   page,
 }) => {
@@ -1432,7 +1531,7 @@ test("shows monitor heartbeat, safe error code and a recovery command", async ({
   await expect(automation.getByText("감시 오류", { exact: true })).toBeVisible();
   await expect(automation.getByText(/마지막 확인/)).toBeVisible();
   await expect(automation.getByText(/TossProviderError/)).toBeVisible();
-  await expect(automation.getByText(/npm run monitor/)).toBeVisible();
+  await expect(automation.getByText(/npm run deploy:local:status/)).toBeVisible();
   expect(
     (await new AxeBuilder({ page }).include(".telegram-settings").analyze()).violations,
   ).toEqual([]);

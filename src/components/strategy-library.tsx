@@ -290,7 +290,7 @@ export function StrategyLibrary({
       applyCommittedStrategy(payload.strategy);
       await synchronizeAfterCommit(
         payload.strategy.monitor.enabled
-          ? "실시간 감시를 예약했습니다. npm run monitor 프로세스 상태를 확인하세요."
+          ? "실시간 감시를 예약했습니다. local release monitor가 60초 안에 반영합니다."
           : "실시간 감시를 중지했습니다.",
         payload.strategy.id,
       );

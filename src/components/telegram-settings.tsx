@@ -17,6 +17,10 @@ interface MonitorStatus {
   deliveredSignals: number;
   failedSignals: number;
   lastErrorCode: string | null;
+  providerRequests?: number;
+  datasetCacheHits?: number;
+  lastProviderSyncAt?: string | null;
+  lastStrategyRefreshAt?: string | null;
 }
 
 const MONITOR_LABEL: Record<MonitorStatus["status"], string> = {
@@ -80,10 +84,17 @@ export function TelegramSettings() {
       }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 10_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void poll();
+    }, 30_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 
@@ -140,9 +151,14 @@ export function TelegramSettings() {
           {monitor?.deliveredSignals ?? 0} · 실패 {monitor?.failedSignals ?? 0}
         </p>
         <p className="monitor-heartbeat">{heartbeatLabel(monitor?.heartbeatAt)}</p>
+        <p className="monitor-heartbeat">
+          TOSS REST {monitor?.providerRequests ?? 0}회 · 공유 dataset cache hit{" "}
+          {monitor?.datasetCacheHits ?? 0}회
+        </p>
         {monitorState === "error" ? (
           <p className="monitor-recovery">
-            터미널에서 <code>npm run monitor</code>를 다시 실행하세요.
+            <code>npm run deploy:local:status</code>로 server와 monitor를 확인하고 필요하면{" "}
+            <code>npm run deploy:local</code>로 함께 재시작하세요.
             {monitor?.lastErrorCode ? (
               <>
                 {" "}
@@ -152,7 +168,8 @@ export function TelegramSettings() {
           </p>
         ) : monitorState === "stopped" ? (
           <p className="monitor-recovery">
-            저장 전략의 감시를 켠 뒤 터미널에서 <code>npm run monitor</code>를 실행하세요.
+            전략 tracking을 켜면 local release monitor가 60초 안에 반영합니다. 개발 서버만 실행한
+            경우에는 <code>npm run monitor</code>를 별도로 사용할 수 있습니다.
           </p>
         ) : null}
       </div>
