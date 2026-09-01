@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  BacktestWindowError,
+  BacktestWindowInputSchema,
+  type BacktestWindowInput,
+} from "@/src/domain/backtest-window";
 
 import {
   toBacktestRunListItem,
@@ -21,7 +26,10 @@ const ParamsSchema = z.object({ id: z.uuid() }).strict();
 const LimitSchema = z.coerce.number().int().min(1).max(50).default(20);
 type Context = { params: Promise<{ id: string }> };
 interface Service {
-  runBacktest(id: string): Promise<{ run: StoredBacktestRun; result: unknown }>;
+  runBacktest(
+    id: string,
+    window?: BacktestWindowInput,
+  ): Promise<{ run: StoredBacktestRun; result: unknown }>;
   listBacktests(id: string, limit: number): Promise<BacktestRunListItem[]>;
 }
 
@@ -45,17 +53,50 @@ export function createStrategyBacktestHandlers(service: Service) {
         return strategyStoreErrorResponse(error, id);
       }
     },
-    async POST(_request: Request, context: Context): Promise<Response> {
+    async POST(request: Request, context: Context): Promise<Response> {
       const id = requestId();
       const params = ParamsSchema.safeParse(await context.params);
       if (!params.success) return apiError(400, "invalid_request", "전략 id를 확인해 주세요.", id);
+      let candidate: unknown = {};
       try {
-        const completed = await service.runBacktest(params.data.id);
+        const contentLength = Number(request.headers.get("content-length"));
+        if (Number.isFinite(contentLength) && contentLength > 20_000) {
+          return apiError(413, "payload_too_large", "기간 요청 크기가 너무 큽니다.", id);
+        }
+        const source = await request.text();
+        if (new TextEncoder().encode(source).byteLength > 20_000) {
+          return apiError(413, "payload_too_large", "기간 요청 크기가 너무 큽니다.", id);
+        }
+        candidate = source.trim() ? (JSON.parse(source) as unknown) : {};
+      } catch {
+        return apiError(400, "invalid_json", "유효한 JSON 기간 요청이 필요합니다.", id);
+      }
+      const body = z
+        .object({ window: BacktestWindowInputSchema.optional() })
+        .strict()
+        .safeParse(candidate);
+      if (!body.success) {
+        return apiError(
+          422,
+          "invalid_backtest_window",
+          "백테스트 시작일과 종료일을 확인해 주세요.",
+          id,
+          body.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        );
+      }
+      try {
+        const completed = await service.runBacktest(params.data.id, body.data.window);
         return jsonNoStore(
           { run: toBacktestRunListItem(completed.run), result: completed.result, requestId: id },
           201,
         );
       } catch (error) {
+        if (error instanceof BacktestWindowError) {
+          return apiError(422, "invalid_backtest_window", error.message, id);
+        }
         return error instanceof StrategyStoreError
           ? strategyStoreErrorResponse(error, id)
           : tossErrorResponse(error, id);

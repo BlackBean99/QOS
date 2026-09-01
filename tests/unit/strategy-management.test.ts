@@ -153,10 +153,16 @@ describe("StrategyManagementService", () => {
     const service = new StrategyManagementService({
       strategies,
       history,
-      execute: async () => result(),
+      execute: async (_document, window) => {
+        expect(window).toEqual({ startDate: "2026-01-01", endDate: "2026-08-01" });
+        return result();
+      },
     });
 
-    const completed = await service.runBacktest(stored.id);
+    const completed = await service.runBacktest(stored.id, {
+      startDate: "2026-01-01",
+      endDate: "2026-08-01",
+    });
 
     expect(completed.run).toMatchObject({
       strategyId: stored.id,

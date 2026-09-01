@@ -17,7 +17,7 @@ const instrument = {
 };
 
 const candles: Candle[] = Array.from({ length: 90 }, (_, index) => ({
-  date: new Date(Date.parse("2026-01-05T14:30:00.000Z") + index * 300_000).toISOString(),
+  date: new Date(Date.parse("2026-08-28T14:30:00.000Z") + index * 300_000).toISOString(),
   open: 100 + index * 0.1,
   high: 100.8 + index * 0.1,
   low: 99.4 + index * 0.1,
@@ -143,7 +143,7 @@ describe("Strategy engine v3 routes", () => {
   });
 
   it("runs and compares validated strategies with an injected data boundary", async () => {
-    const handler = createStrategyEngineBacktestHandler(async () => ({
+    const loader = vi.fn(async () => ({
       candles,
       runtime: {
         marketTimeZone: instrument.timezone,
@@ -153,18 +153,33 @@ describe("Strategy engine v3 routes", () => {
         adjustedPrices: true,
       },
     }));
+    const handler = createStrategyEngineBacktestHandler(loader);
     const one = createPresetStrategyV3("ema-crossover", instrument.instrumentId);
     const two = createPresetStrategyV3("rsi-momentum", instrument.instrumentId);
     const response = await handler(
       new Request("http://qos.local/api/strategy-engine/backtests", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ strategies: [one, two], instrument }),
+        body: JSON.stringify({
+          strategies: [one, two],
+          instrument,
+          window: { startDate: "2026-08-28", endDate: "2026-08-29" },
+        }),
       }),
     );
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(body.kind).toBe("comparison");
     expect(body.comparison.runs).toHaveLength(2);
+    expect(body.window).toMatchObject({
+      source: "CUSTOM",
+      startDate: "2026-08-28",
+      endDate: "2026-08-29",
+    });
+    expect(loader).toHaveBeenCalledWith(
+      one,
+      instrument,
+      expect.objectContaining({ startDate: "2026-08-28", endDate: "2026-08-29" }),
+    );
   });
 });

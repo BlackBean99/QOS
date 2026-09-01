@@ -2,6 +2,7 @@ import type { ResearchComparisonResult } from "@/src/domain/advanced-backtest";
 import type { BacktestResult } from "@/src/domain/backtest";
 import type { BacktestResultV3 } from "@/src/domain/backtest-v3/engine";
 import type { StoredStrategy } from "@/src/domain/stored-strategy";
+import type { BacktestWindowInput } from "@/src/domain/backtest-window";
 import {
   NewBacktestRunSchema,
   type BacktestHistoryRepository,
@@ -15,7 +16,10 @@ export type ManagedBacktestResult = BacktestResult | ResearchComparisonResult | 
 interface StrategyManagementOptions {
   strategies: StrategyRepository;
   history: BacktestHistoryRepository;
-  execute: (document: StoredStrategy) => Promise<ManagedBacktestResult>;
+  execute: (
+    document: StoredStrategy,
+    window?: BacktestWindowInput,
+  ) => Promise<ManagedBacktestResult>;
 }
 
 function resultObject(result: ManagedBacktestResult): Record<string, unknown> {
@@ -73,13 +77,16 @@ export class StrategyManagementService {
     this.#execute = options.execute;
   }
 
-  async runBacktest(strategyId: string): Promise<{
+  async runBacktest(
+    strategyId: string,
+    window?: BacktestWindowInput,
+  ): Promise<{
     run: StoredBacktestRun;
     result: ManagedBacktestResult;
   }> {
     const document = await this.#strategies.get(strategyId);
     if (!document) throw new StrategyStoreError("not_found", "저장 전략을 찾지 못했습니다.");
-    const result = await this.#execute(document);
+    const result = await this.#execute(document, window);
     const run = await this.#history.create(
       NewBacktestRunSchema.parse({
         strategyId: document.id,

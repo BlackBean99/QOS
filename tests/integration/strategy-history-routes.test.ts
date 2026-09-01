@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createBacktestRunHandlers } from "@/app/api/backtest-runs/[id]/route";
 import { createBacktestRunCollectionHandler } from "@/app/api/backtest-runs/route";
@@ -65,19 +65,31 @@ function listItem() {
 
 describe("strategy backtest history routes", () => {
   it("runs a saved strategy and returns result plus a summary-only history item", async () => {
+    const runBacktest = vi.fn(async () => ({ run: run(), result: run().result }));
     const service = {
-      runBacktest: async () => ({ run: run(), result: run().result }),
+      runBacktest,
       listBacktests: async () => [listItem()],
     };
     const handlers = createStrategyBacktestHandlers(service);
 
-    const response = await handlers.POST(new Request("http://localhost"), {
-      params: Promise.resolve({ id: STRATEGY_ID }),
-    });
+    const response = await handlers.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          window: { startDate: "2026-01-01", endDate: "2026-08-01" },
+        }),
+      }),
+      { params: Promise.resolve({ id: STRATEGY_ID }) },
+    );
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({
       run: { id: RUN_ID, summary: { totalReturnPercent: 12.5 } },
       result: { metrics: { totalReturnPercent: 12.5 } },
+    });
+    expect(runBacktest).toHaveBeenCalledWith(STRATEGY_ID, {
+      startDate: "2026-01-01",
+      endDate: "2026-08-01",
     });
 
     const listed = await handlers.GET(new Request("http://localhost?limit=20"), {

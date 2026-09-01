@@ -7,6 +7,15 @@ import {
 } from "@/src/domain/backtest-v3/engine";
 import { InstrumentSnapshotSchema, type InstrumentSnapshot } from "@/src/domain/stored-strategy";
 import {
+  BacktestWindowError,
+  BacktestWindowInputSchema,
+  estimateBacktestTargetBars,
+  filterCandlesByBacktestWindow,
+  filterCompletedBacktestCandles,
+  resolveBacktestWindow,
+  type ResolvedBacktestWindow,
+} from "@/src/domain/backtest-window";
+import {
   StrategyDefinitionV3Schema,
   type StrategyDefinitionV3,
 } from "@/src/domain/strategy-v3/schema";
@@ -27,6 +36,7 @@ const RequestSchema = z
   .object({
     strategies: z.array(StrategyDefinitionV3Schema).min(1).max(6),
     instrument: InstrumentSnapshotSchema,
+    window: BacktestWindowInputSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -59,14 +69,16 @@ interface LoadedDatasetV3 {
 export type StrategyDatasetLoaderV3 = (
   strategy: StrategyDefinitionV3,
   instrument: InstrumentSnapshot,
+  window: ResolvedBacktestWindow,
 ) => Promise<LoadedDatasetV3>;
 
 async function loadDataset(
   strategy: StrategyDefinitionV3,
   instrument: InstrumentSnapshot,
+  window: ResolvedBacktestWindow,
 ): Promise<LoadedDatasetV3> {
   const dataset = await loadTossStrategyDataset(getTossClient(), instrument, strategy.timeframe, {
-    targetBars: 1_200,
+    targetBars: estimateBacktestTargetBars(strategy.timeframe, window, instrument.timezone),
   });
   return {
     candles: dataset.candles,
@@ -101,25 +113,39 @@ export function createStrategyEngineBacktestHandler(loader: StrategyDatasetLoade
       );
     }
     try {
-      const dataset = await loader(parsed.data.strategies[0], parsed.data.instrument);
-      if (dataset.candles.length < 2)
+      const window = resolveBacktestWindow(
+        parsed.data.strategies[0].timeframe,
+        parsed.data.window,
+        parsed.data.instrument.timezone,
+      );
+      const dataset = await loader(parsed.data.strategies[0], parsed.data.instrument, window);
+      const candles = filterCandlesByBacktestWindow(
+        filterCompletedBacktestCandles(
+          dataset.candles,
+          parsed.data.strategies[0].timeframe,
+          parsed.data.instrument.timezone,
+          parsed.data.instrument.currency,
+        ),
+        window,
+        parsed.data.instrument.timezone,
+      );
+      if (candles.length < 2)
         return apiError(422, "insufficient_data", "백테스트에 필요한 완료 봉이 부족합니다.", id);
       const result =
         parsed.data.strategies.length === 1
           ? {
               kind: "single" as const,
-              result: runBacktestV3(parsed.data.strategies[0], dataset.candles, dataset.runtime),
+              result: runBacktestV3(parsed.data.strategies[0], candles, dataset.runtime),
             }
           : {
               kind: "comparison" as const,
-              comparison: compareBacktestsV3(
-                parsed.data.strategies,
-                dataset.candles,
-                dataset.runtime,
-              ),
+              comparison: compareBacktestsV3(parsed.data.strategies, candles, dataset.runtime),
             };
-      return jsonNoStore({ ...result, requestId: id });
+      return jsonNoStore({ ...result, window, requestId: id });
     } catch (error) {
+      if (error instanceof BacktestWindowError) {
+        return apiError(422, "invalid_backtest_window", error.message, id);
+      }
       return tossErrorResponse(error, id);
     }
   };
