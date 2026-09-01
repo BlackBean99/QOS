@@ -1,0 +1,132 @@
+{
+  "version": 3,
+  "name": "VWAP Breakout + Ichimoku Exit",
+  "market": "NASDAQ",
+  "instrumentId": "NASDAQ:NVDA",
+  "timeframe": "5m",
+  "side": "LONG",
+  "entry": {
+    "type": "GROUP",
+    "id": "rolling-vwap-entry",
+    "operator": "AND",
+    "children": [
+      {
+        "type": "CONDITION",
+        "id": "rolling-vwap-cross",
+        "left": {
+          "type": "INDICATOR",
+          "timeframe": "5m",
+          "offset": 0,
+          "kind": "PRICE",
+          "field": "close"
+        },
+        "operator": "CROSS_ABOVE",
+        "right": {
+          "type": "INDICATOR",
+          "timeframe": "5m",
+          "offset": 0,
+          "kind": "VWAP",
+          "variant": { "kind": "ROLLING_DAYS", "days": 15 },
+          "output": "VALUE"
+        }
+      }
+    ]
+  },
+  "filters": { "type": "GROUP", "id": "filters", "operator": "AND", "children": [] },
+  "exits": [
+    {
+      "kind": "CONDITION",
+      "id": "kijun-breakdown",
+      "priority": 50,
+      "rule": {
+        "type": "GROUP",
+        "id": "kijun-rule",
+        "label": "Kijun breakdown",
+        "operator": "AND",
+        "children": [
+          {
+            "type": "CONDITION",
+            "id": "kijun-exit-cross",
+            "left": {
+              "type": "INDICATOR",
+              "timeframe": "5m",
+              "offset": 0,
+              "kind": "PRICE",
+              "field": "close"
+            },
+            "operator": "CROSS_BELOW",
+            "right": {
+              "type": "INDICATOR",
+              "timeframe": "5m",
+              "offset": 0,
+              "kind": "ICHIMOKU",
+              "tenkanPeriod": 9,
+              "kijunPeriod": 26,
+              "spanBPeriod": 52,
+              "displacement": 26,
+              "output": "KIJUN"
+            }
+          }
+        ]
+      },
+      "quantityPercent": 100
+    },
+    {
+      "kind": "ATR_TRAILING",
+      "id": "atr-trailing",
+      "priority": 40,
+      "period": 14,
+      "multiplier": 2,
+      "quantityPercent": 100
+    }
+  ],
+  "positionSizing": { "kind": "EQUITY_PERCENT", "value": 100 },
+  "risk": {
+    "maximumPositions": 1,
+    "maximumSymbolAllocationPercent": 100,
+    "maximumDailyLossPercent": 5,
+    "maximumStrategyDrawdownPercent": 30,
+    "maximumPortfolioDrawdownPercent": 30,
+    "consecutiveLossLimit": 8
+  },
+  "execution": {
+    "signalAt": "BAR_CLOSE",
+    "fillAt": "NEXT_BAR_OPEN",
+    "order": { "type": "MARKET" },
+    "intrabarPolicy": "CONSERVATIVE",
+    "commissionBps": 1.5,
+    "slippageBps": 5,
+    "spreadBps": 2,
+    "minimumTick": 0.01,
+    "startingCapital": 100000
+  },
+  "overlays": [
+    {
+      "id": "rolling-vwap-overlay",
+      "operand": {
+        "type": "INDICATOR",
+        "timeframe": "5m",
+        "offset": 0,
+        "kind": "VWAP",
+        "variant": { "kind": "ROLLING_DAYS", "days": 15 },
+        "output": "VALUE"
+      },
+      "label": "Rolling 15-Day VWAP"
+    },
+    {
+      "id": "kijun-overlay",
+      "operand": {
+        "type": "INDICATOR",
+        "timeframe": "5m",
+        "offset": 0,
+        "kind": "ICHIMOKU",
+        "tenkanPeriod": 9,
+        "kijunPeriod": 26,
+        "spanBPeriod": 52,
+        "displacement": 26,
+        "output": "KIJUN"
+      },
+      "label": "Ichimoku Kijun"
+    }
+  ]
+}

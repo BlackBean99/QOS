@@ -1,0 +1,2 @@
+-- Baseline marker for a pre-existing remote migration not owned by QOS.
+-- Keep this version so Supabase CLI preserves the remote migration history.
