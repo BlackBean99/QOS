@@ -24,9 +24,14 @@
   시각, directory 0700/file 0600을 검증한다.
 - Next.js/@next/env/eslint-config-next를 보안 패치 16.3.5로 맞추고 transitive sharp 0.35.4,
   js-yaml 4.3.2를 lock했다. `npm audit`와 production-only audit 모두 0 vulnerabilities다.
-- focused unit/integration 74개와 추가 v1/v2 compatibility test가 통과했다. 360/390/768/1440에서
-  Rule Chain·Telegram·다종목/inverse·15분 VWAP browser 16건이 통과했고 발견된 OFF 행 대비 결함을
-  수정했다. full clean-tree gate, Git push와 loopback release 결과는 최종 검증 뒤 갱신한다.
+- focused unit/integration 74개와 추가 v1/v2 compatibility test가 통과했다. clean commit
+  `a60d580`에서 format/lint/typecheck, unit 197, integration 53, 전체 Vitest 250, production build,
+  full/production audit 0 vulnerabilities가 통과했다. 360/390/768/1440 전체 Playwright는 83 pass,
+  desktop-only 9 matrix skip, 실패 0이며 Rule Chain·Telegram·다종목/inverse·15분 VWAP과 axe/키보드
+  흐름을 포함한다. 발견된 OFF 행 대비 결함은 릴리스 전에 수정했다.
+- 같은 commit을 `http://127.0.0.1:3000`에 배포했다. owned Next/monitor 상태는 healthy, monitor는
+  connected·PRIMARY source·전략 1개/target 1개·오류 없음이며 실제 Telegram test message 전송이
+  성공했다. 기존 미완성 3분봉/voice 변경은 clean build 동안만 격리한 뒤 그대로 복원했다.
 
 ## 2026-09-01 — Persistent all-security catalog and strategy-first multi-target tracking
 
@@ -44,9 +49,11 @@
 - Strategy Library detail에 종목·ETF 검색, 추가/제거, 대상만 저장, 저장+감시 ON을 한 흐름으로
   제공한다. Telegram 상태는 저장 전략 수와 실제 감시 종목 수를 구분한다. 모든 신호는 완료 봉
   paper alert이고 계좌·주문 API는 추가하지 않았다.
-- focused 증거: unit 180, integration 51, 전체 Vitest 231개가 통과했고 주식+ETF 다종목 저장/ON
-  시나리오는 360/390/768/1440 Playwright와 axe에서 통과했다. 전체 release gate, provider smoke,
-  Git commit/push와 loopback 재배포 결과는 최종 검증 뒤 이 항목에 갱신한다.
+- focused 증거: 당시 unit 180, integration 51, 전체 Vitest 231개가 통과했고 주식+ETF 다종목 저장/ON
+  시나리오는 360/390/768/1440 Playwright와 axe에서 통과했다. 후속 hedge monitor까지 합친
+  clean commit `a60d580`은 unit 197, integration 53, 전체 Vitest 250과 Playwright 83 pass/9
+  intentional skip을 통과했으며 loopback monitor가 실제 TOSS dataset을 동기화해 connected 상태를
+  보고했다.
 
 ## 2026-09-01 — All-entry recommendation, custom periods and efficient tracking
 

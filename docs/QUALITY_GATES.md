@@ -2,7 +2,7 @@
 
 ## Status
 
-2026-09-01 기준 npm/Next.js 도구 체인과 실제 시장 strategy workspace가 구성되었다. 아래 명령은
+2026-09-13 기준 npm/Next.js 도구 체인과 실제 시장 strategy workspace가 구성되었다. 아래 명령은
 로컬에서 실제 실행하며, 명령이 바뀌면 README와 AGENTS.md를 함께 갱신한다.
 
 ## Always available
@@ -13,28 +13,28 @@
 
 ## Required commands
 
-| Gate                     | Command                       | 2026-09-01 result                   |
-| ------------------------ | ----------------------------- | ----------------------------------- |
-| Format check             | `npm run format:check`        | Passed                              |
-| Lint                     | `npm run lint`                | Passed                              |
-| Typecheck                | `npm run typecheck`           | Passed                              |
-| Unit tests               | `npm run test:unit`           | 161 passed                          |
-| Integration tests        | `npm run test:integration`    | 44 passed                           |
-| Full Vitest suite        | `npm run test`                | 205 passed                          |
-| End-to-end               | `npm run test:e2e`            | 71 passed, 9 matrix skips           |
-| Production build         | `npm run build`               | Passed                              |
-| Production run           | `npm run start`               | v3 UI/catalog/storage smoke passed  |
-| Combined local gates     | `npm run verify`              | See required gates above            |
-| Managed local deploy     | `npm run deploy:local`        | Loopback contract smoke passed      |
-| Local deployment status  | `npm run deploy:local:status` | Healthy/stopped passed              |
-| Managed local stop       | `npm run deploy:local:stop`   | Owned process stop passed           |
-| Verified local release   | `npm run release:local`       | Full gates + loopback smoke passed  |
-| Monitor runtime          | `npm run monitor`             | 2026-09-01 singleton/lifecycle pass |
-| Accessibility automation | browser + `test:e2e`          | production axe: 0 selected flow     |
-| Dependency audit         | `npm audit --omit=dev`        | 0 known production vulnerabilities  |
-| Supabase migration       | `npm run db:migrations`       | Local/remote versions aligned       |
-| Supabase remote CRUD/RLS | temporary-row smoke           | CRUD/update/history/delete passed   |
-| TOSS real provider       | safe OAuth/master smoke       | HTTP 403; IP/permission unresolved  |
+| Gate                     | Command                        | 2026-09-13 result                  |
+| ------------------------ | ------------------------------ | ---------------------------------- |
+| Format check             | `npm run format:check`         | Passed                             |
+| Lint                     | `npm run lint`                 | Passed                             |
+| Typecheck                | `npm run typecheck`            | Passed                             |
+| Unit tests               | `npm run test:unit`            | 197 passed                         |
+| Integration tests        | `npm run test:integration`     | 53 passed                          |
+| Full Vitest suite        | `npm run test`                 | 250 passed                         |
+| End-to-end               | `npm run test:e2e`             | 83 passed, 9 matrix skips          |
+| Production build         | `npm run build`                | Passed                             |
+| Production run           | `npm run start`                | v3 UI/catalog/monitor smoke passed |
+| Combined local gates     | `npm run verify`               | Passed on clean commit `a60d580`   |
+| Managed local deploy     | `npm run deploy:local`         | `a60d580` loopback healthy         |
+| Local deployment status  | `npm run deploy:local:status`  | Next + monitor healthy             |
+| Managed local stop       | `npm run deploy:local:stop`    | Owned process stop passed          |
+| Verified local release   | verify + E2E + deploy sequence | Full gates + loopback smoke passed |
+| Monitor runtime          | `npm run monitor`              | connected, PRIMARY, error-free     |
+| Accessibility automation | browser + `test:e2e`           | axe: 0 selected flow violations    |
+| Dependency audit         | `npm audit --omit=dev`         | 0 known production vulnerabilities |
+| Supabase migration       | `npm run db:migrations`        | Local/remote versions aligned      |
+| Supabase remote CRUD/RLS | temporary-row smoke            | CRUD/update/history/delete passed  |
+| TOSS real provider       | safe OAuth/master smoke        | HTTP 403; IP/permission unresolved |
 
 E2E는 첫 실행 전에 `npx playwright install chromium`이 필요하다. 표의 결과는 현재
 작업 트리의 마지막 검증 기록이며 이후 코드 변경 뒤에는 다시 실행해야 한다.

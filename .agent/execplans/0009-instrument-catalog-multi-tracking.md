@@ -2,7 +2,7 @@
 
 ## Status
 
-Active — 2026-09-01.
+Completed and released locally — 2026-09-13.
 
 ## Purpose and observable outcome
 
@@ -72,7 +72,7 @@ paper signal을 감시한다. UI의 중심을 단일 종목 감시에서 전략 
 - [x] 2026-09-01 — catalog/search/API RED→GREEN; ETF/restart/stale/1.1s quota tests.
 - [x] 2026-09-01 — multi-target schema/monitor RED→GREEN; v1/v2/v3 target identity와 telemetry.
 - [x] 2026-09-01 — strategy-first responsive UX; 360/390/768/1440 Playwright+axe focused pass.
-- [ ] full gates, review, docs, Git push and local release.
+- [x] 2026-09-13 — full gates, review, docs, Git delivery and verified local release.
 
 ## Discoveries and remaining risks
 
@@ -93,5 +93,7 @@ paper signal을 감시한다. UI의 중심을 단일 종목 감시에서 전략 
 ## Outcome
 
 구현 결과는 restart-safe catalog, all-security search, cache provenance, optional 50-target schema,
-target별 monitor runtime과 strategy-first picker로 구성됐다. full gate, provider smoke, Git push와
-verified local release 결과는 마지막 milestone에서 기록한다.
+target별 monitor runtime과 strategy-first picker로 구성됐다. 2026-09-13 clean-tree gate에서 unit 197,
+integration 53, 전체 Vitest 250, Playwright 83 pass/9 intentional matrix skip, production build와 audit 0을
+확인했다. commit `a60d580`의 loopback release에서 monitor가 PRIMARY source, 전략 1개/target 1개,
+provider request와 dataset reuse telemetry를 보고하며 오류 없이 connected 상태를 유지했다.

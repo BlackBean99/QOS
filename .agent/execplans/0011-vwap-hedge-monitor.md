@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation complete; release verification active — 2026-09-13.
+Completed and released locally — 2026-09-13.
 
 ## Purpose and observable outcome
 
@@ -76,7 +76,7 @@ tests/integration/strategy-crud-routes.test.ts`
 - [x] contracts and failing tests.
 - [x] runtime and UI implementation.
 - [x] reliability closure and focused/browser review.
-- [ ] Git push and verified local release.
+- [x] 2026-09-13 — clean-tree full gates, Git delivery and verified loopback release.
 
 ## Discoveries and remaining risks
 
@@ -101,4 +101,11 @@ tests/integration/strategy-crud-routes.test.ts`
 
 ## Outcome
 
-Pending implementation and verified release.
+Commit `a60d580` implements the completed 15-minute open/Session VWAP Entry and Exit presets, per-target
+ON/OFF, explicit inverse paper hedge transitions, resilient strategy snapshot and target-level telemetry. A clean
+worktree passed format, lint, typecheck, 197 unit tests, 53 integration tests, 250 total Vitest tests, production
+build, full and production dependency audits with zero vulnerabilities, and Playwright with 83 pass/9 intentional
+matrix skips. The same commit is running at `http://127.0.0.1:3000`; owned Next and monitor processes are healthy,
+the monitor is connected to PRIMARY storage with one enabled strategy/target and no error, and a real Telegram
+test message was accepted. Existing incomplete 3-minute chart and voice-assistant files were restored unchanged
+after the clean deployment build.
