@@ -32,6 +32,10 @@ export class StrategyV3CompilerError extends Error {
 }
 
 const entryPatterns: Array<[RegExp, string]> = [
+  [
+    /(?:15\s*분|15m).*(?:시가|open).*?(?:session|세션)?.*vwap|(?:시가|open).*(?:session|세션).*vwap/i,
+    "session-vwap-open-cross",
+  ],
   [/multi[- ]?timeframe|다중.*시간|상위.*타임|daily.*5m|일봉.*5분/i, "multi-timeframe-trend-entry"],
   [/opening range|오프닝.*레인지|시초가.*범위|\bORB\b/i, "opening-range-breakout"],
   [/anchored.*vwap|anchor.*vwap|앵커.*vwap/i, "anchored-vwap-breakout"],
@@ -97,6 +101,10 @@ const filterPatterns: Array<[RegExp, string]> = [
 ];
 
 const exitPatterns: Array<[RegExp, string]> = [
+  [
+    /(?:15\s*분|15m).*(?:시가|open).*vwap.*(?:아래|하향|이탈|매도|sell)/i,
+    "session-vwap-open-breakdown-exit",
+  ],
   [/multi.*scale|다단계.*분할|여러.*분할/i, "multi-level-scale-out"],
   [/partial|scale.?out|절반.*매도|일부.*매도|분할.*매도/i, "partial-take-profit"],
   [/break.?even|본전.*손절/i, "break-even-stop"],
@@ -132,11 +140,11 @@ const ExitPresetIdSchema = z.enum(
 const StrategyV3IntentSchema = z
   .object({
     name: z.string().trim().min(3).max(120).nullable(),
-    entryPresetIds: z.array(EntryPresetIdSchema).min(1).max(16),
+    entryPresetIds: z.array(EntryPresetIdSchema).min(1).max(32),
     entryOperator: z.enum(["AND", "OR"]),
-    filterPresetIds: z.array(FilterPresetIdSchema).max(16),
+    filterPresetIds: z.array(FilterPresetIdSchema).max(32),
     filterOperator: z.enum(["AND", "OR"]),
-    exitPresetIds: z.array(ExitPresetIdSchema).min(1).max(20),
+    exitPresetIds: z.array(ExitPresetIdSchema).min(1).max(40),
     timeframe: StrategyTimeframeSchema.nullable(),
     side: z.enum(["LONG", "SHORT"]).nullable(),
   })
@@ -194,6 +202,7 @@ function pruneOverlappingEntryMatches(
   preferSpecific("price-above-moving-average", "ema-crossover");
   preferSpecific("moving-average-deviation", "ema-crossover");
   for (const specificVwap of [
+    "session-vwap-open-cross",
     "rolling-vwap-breakout",
     "anchored-vwap-breakout",
     "weekly-vwap-breakout",
@@ -364,6 +373,12 @@ export function compileStrategyV3Deterministically(
     filterIds,
     exitIds,
   );
+  if (
+    entryIds.includes("session-vwap-open-cross") &&
+    !exitIds.includes("session-vwap-open-breakdown-exit")
+  ) {
+    exitIds.unshift("session-vwap-open-breakdown-exit");
+  }
   if (!entryIds.length)
     throw new StrategyV3CompilerError(
       "UNSUPPORTED_PROMPT",

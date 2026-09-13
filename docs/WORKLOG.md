@@ -3,9 +3,54 @@
 검토 가능한 사실과 결과만 기록한다. 상세 계획은 `.agent/execplans/`, 장기 결정은
 `docs/decisions/`에 둔다.
 
+## 2026-09-13 — 15-minute VWAP Telegram monitor and explicit inverse paper hedge
+
+- Strategy v3에 `PRICE(open)`과 Session VWAP의 completed 15분봉 상향 Entry/하향 Exit preset을
+  추가했다. 동일 DSL·indicator runtime을 backtest와 monitor가 공유하며 자연어의 “15분봉 시가
+  VWAP 돌파/이탈”도 paired Entry/Exit으로만 compile한다. catalog는 Entry 43·Filter 8·Exit 21이다.
+- `monitor.targetControls`를 optional additive field로 추가해 최대 50개 target의 개별 ON/OFF와
+  사용자가 명시한 inverse instrument snapshot을 저장한다. 기존 field가 없는 v1/v2/v3는 모두 ON인
+  기존 의미로 실행한다.
+- WAITING/LONG_PRIMARY/LONG_HEDGE paper state를 local monitor state에 보존한다. primary SELL은
+  primary SELL+hedge BUY, 다음 primary BUY는 hedge SELL+primary BUY action을 한 Telegram 메시지로
+  전송하며, 전송 성공 뒤 delivery와 paper leg를 atomic write한다. position key는 revision과 분리하고
+  실제 paper 보유 instrument snapshot을 저장해 전략 수정·hedge 교체 뒤에도 이전 leg를 잘못 매도하지
+  않는다. 실제 주문은 없다.
+- 정상 repository list를 private atomic monitor snapshot으로 저장하고 원격 조회 실패에는 감시 read에만
+  마지막 정상본을 사용한다. UI/status/log가 PRIMARY/SNAPSHOT source와 시각을 표시하고 CRUD write는
+  장애를 local로 숨기지 않는다.
+- 종목 catalog는 concurrent cold resolution을 single-flight로 합치고 STOCK_ALL endpoint 내부 retry를
+  제거했다. 일반 요청의 missing Retry-After는 250/500ms backoff로 수정했으며 cache origin과 기준
+  시각, directory 0700/file 0600을 검증한다.
+- Next.js/@next/env/eslint-config-next를 보안 패치 16.3.5로 맞추고 transitive sharp 0.35.4,
+  js-yaml 4.3.2를 lock했다. `npm audit`와 production-only audit 모두 0 vulnerabilities다.
+- focused unit/integration 74개와 추가 v1/v2 compatibility test가 통과했다. 360/390/768/1440에서
+  Rule Chain·Telegram·다종목/inverse·15분 VWAP browser 16건이 통과했고 발견된 OFF 행 대비 결함을
+  수정했다. full clean-tree gate, Git push와 loopback release 결과는 최종 검증 뒤 갱신한다.
+
+## 2026-09-01 — Persistent all-security catalog and strategy-first multi-target tracking
+
+- TOSS `/stocks/all` 요청에서 STOCK/common-share 제한을 제거하고 ACTIVE market master의
+  security type을 그대로 보존한다. 현재 공식 stock master가 반환하는 주식·해외주식·DR·인프라
+  펀드·REIT·ETF·해외 ETF·ETN·신주인수권을 이름/티커로 검색하며 옵션·채권·선물을 합성하지 않는다.
+- 시장별 master는 `.qos/data/instrument-catalog-v1.json`의 versioned strict envelope에 atomic
+  `0600`으로 저장한다. fresh TTL 24시간, transient/auth provider 실패에 한한 bounded stale 7일,
+  같은 market in-flight 병합과 `STOCK_ALL` 1 TPS를 위한 1.1초 refresh queue를 적용했다. API/UI는
+  HIT/REFRESHED/STALE, 기준 시각과 수동 갱신을 표시한다.
+- 저장 전략에 optional `monitor.targets`를 최대 50개 unique instrument snapshot으로 추가했다.
+  field가 없는 v1/v2/v3 전략은 대표 종목 하나로 호환된다. monitor는 target별 runtime을 strict
+  schema로 materialize하며 dataset/subscription은 instrument+timeframe으로 공유하고 평가·전송
+  dedupe key에는 target instrumentId를 포함한다.
+- Strategy Library detail에 종목·ETF 검색, 추가/제거, 대상만 저장, 저장+감시 ON을 한 흐름으로
+  제공한다. Telegram 상태는 저장 전략 수와 실제 감시 종목 수를 구분한다. 모든 신호는 완료 봉
+  paper alert이고 계좌·주문 API는 추가하지 않았다.
+- focused 증거: unit 180, integration 51, 전체 Vitest 231개가 통과했고 주식+ETF 다종목 저장/ON
+  시나리오는 360/390/768/1440 Playwright와 axe에서 통과했다. 전체 release gate, provider smoke,
+  Git commit/push와 loopback 재배포 결과는 최종 검증 뒤 이 항목에 갱신한다.
+
 ## 2026-09-01 — All-entry recommendation, custom periods and efficient tracking
 
-- 종목 선택 시 Strategy v3 Entry preset 42개 전체를 한 TOSS dataset, 동일 비용·next-open 정책과
+- 종목 선택 시 당시 Strategy v3 Entry preset 42개 전체를 한 TOSS dataset, 동일 비용·next-open 정책과
   baseline ATR 2x stop + 2R target으로 평가한다. 거래가 있는 후보를 과거 총수익률, MDD, Sharpe,
   preset id 순으로 결정론적으로 정렬하며 결과는 편집 가능한 v3 DSL이다. in-sample·생존편향·기본
   parameter 한계를 UI에 모두 표시한다.

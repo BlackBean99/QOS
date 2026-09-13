@@ -1,3 +1,30 @@
+# 15-minute VWAP and inverse paper hedge monitoring
+
+- [x] capability map/spec/ExecPlan/ADR과 completed-bar timing을 기록한다.
+- [x] 15분 open/Session VWAP Entry·Exit와 자연어 paired compile을 구현한다.
+- [x] target별 ON/OFF, explicit inverse snapshot과 legacy v1/v2/v3 호환을 구현한다.
+- [x] persistent paper transition, compound Telegram과 read-only strategy snapshot fallback을 구현한다.
+- [x] target management/inverse picker/paper state/Telegram setup UX를 구현한다.
+- [x] STOCK_ALL retry, concurrent cache, origin/timestamp와 private directory 회귀를 수정한다.
+- [ ] full clean-tree gates, browser, review, Git push와 verified local release를 완료한다.
+
+**Verify:** focused Vitest, Playwright viewport/axe, clean worktree full gates, local runtime status
+
+---
+
+# Persistent instrument catalog and multi-target tracking
+
+- [x] provider/search/store/monitor/UI baseline과 공식 TOSS 계약을 분석한다.
+- [x] specification/ExecPlan/proposed ADR을 작성한다.
+- [x] all-security query와 persistent 24h/7d catalog cache를 구현한다.
+- [x] additive monitor.targets와 target-scoped runner/idempotency를 구현한다.
+- [x] strategy-first target picker를 keyboard/mobile/axe에서 검증한다.
+- [ ] full gates, review, docs, Git push와 verified local release를 완료한다.
+
+**Verify:** focused Vitest, Playwright viewport/axe, full repository gates, local runtime smoke
+
+---
+
 # Strategy recommendation and efficient tracking
 
 - [x] 전체 catalog/backtest/monitor/local release baseline과 비용 중복 지점을 분석한다.

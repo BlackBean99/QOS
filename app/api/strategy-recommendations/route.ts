@@ -33,7 +33,7 @@ import { loadTossStrategyDataset } from "@/src/server/toss/datasets";
 
 export const runtime = "nodejs";
 
-const CATALOG_VERSION = "strategy-v3-entry-42";
+const CATALOG_VERSION = "strategy-v3-entry-43";
 
 const RequestSchema = z
   .object({

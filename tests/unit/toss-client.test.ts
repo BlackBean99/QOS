@@ -44,6 +44,11 @@ describe("TossClient", () => {
     );
     const authorization = new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("authorization");
     expect(authorization).toBe("Bearer server-only-token");
+    const catalogUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(catalogUrl.searchParams.get("market")).toBe("KOSPI");
+    expect(catalogUrl.searchParams.get("status")).toBe("ACTIVE");
+    expect(catalogUrl.searchParams.has("securityType")).toBe(false);
+    expect(catalogUrl.searchParams.has("commonShare")).toBe(false);
   });
 
   it("validates and orders provider candles oldest first", async () => {
@@ -95,7 +100,7 @@ describe("TossClient", () => {
     expect(page.candles[0]).toMatchObject({ open: 71900, close: 72000, volume: 100 });
   });
 
-  it("retries 429 with bounded Retry-After and returns a typed error", async () => {
+  it("does not internally retry quota-sensitive stock master calls", async () => {
     const sleeps: number[] = [];
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -120,8 +125,31 @@ describe("TossClient", () => {
       code: "rate_limited",
       status: 429,
     });
-    expect(sleeps).toEqual([1_000, 1_000]);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(sleeps).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses exponential fallback when Retry-After is missing on ordinary requests", async () => {
+    const sleeps: number[] = [];
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ access_token: "token", token_type: "Bearer", expires_in: 3600 }),
+      )
+      .mockResolvedValue(response({ error: "busy" }, 503));
+    const client = new TossClient({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl: fetchMock,
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+    });
+
+    await expect(client.getCandles({ symbol: "AAPL", interval: "1m" })).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    expect(sleeps).toEqual([250, 500]);
   });
 
   it("fails closed on malformed decimal candle data", async () => {

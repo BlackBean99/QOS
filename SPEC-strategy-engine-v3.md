@@ -14,7 +14,7 @@ AND/OR/NOT으로 중첩하고 독립적인 청산·Risk·Position·Execution 설
 
 ## Tech Stack
 
-- npm, Node.js 20.9+, Next.js 16.3.2 App Router, React 19.2.8, TypeScript 6
+- npm, Node.js 20.9+, Next.js 16.3.5 App Router, React 19.2.8, TypeScript 6
 - Zod 4.4 strict runtime validation
 - 기존 `@ixjb94/indicators` 1.2.6과 검토된 pure TypeScript 보조 계산
 - TOSS adjusted 1m/1d candles, session-aligned local aggregation
@@ -107,7 +107,7 @@ Multi-output 지표는 output key를 반드시 지정한다. UI chart 계산기�
 다음 preset은 모두 실제 Strategy v3 rule tree를 생성하며 Customize 후 모든 rule과 parameter를
 수정할 수 있다.
 
-Required Entry 24종과 아래 확장 template를 포함한 실제 Entry 42종:
+Required Entry 24종과 아래 확장 template를 포함한 실제 Entry 43종:
 
 1. EMA/SMA Crossover
 2. EMA Trend Pullback
@@ -321,7 +321,7 @@ const rule: ConditionRule = {
 - MTF: only completed higher candle is visible
 - Position: monotonic trailing, break-even, partial/scale-out, priority, risk sizing, circuit breakers
 - Golden fixture: Strategy → Signals → Orders → Fills → Trades → Metrics snapshot
-- Preset conformance: all 42/20/8 named presets validate and execute without name-based dispatch
+- Preset conformance: all 43/21/8 named presets validate and execute without name-based dispatch
 - Integration: API invalid/oversize/code fields, persistence v1/v2/v3, migration/history
 - E2E: user scenarios A–E, dozens of added rules, search, mobile, keyboard, axe and trace
 
@@ -334,7 +334,7 @@ const rule: ConditionRule = {
 
 ## Success Criteria
 
-- 모든 위 Entry 42·Exit 20·Filter 8 preset이 editable v3 rule/exit definition을 만들고 실행된다.
+- 모든 위 Entry 43·Exit 21·Filter 8 preset이 editable v3 rule/exit definition을 만들고 실행된다.
 - 사용자가 최소 64개 leaf condition을 nested Rule Chain으로 저장·백테스트할 수 있다.
 - 사용자 Scenario A–E가 실제 UI에서 실행되고 E는 세 Exit 결과를 같은 표에서 비교한다.
 - 모든 요청 indicator, exit, sizing, MTF와 look-ahead deterministic tests가 통과한다.

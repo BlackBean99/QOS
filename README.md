@@ -5,7 +5,8 @@ backtest/실시간 감시하는 로컬 단일 사용자 Quant 웹앱입니다. �
 
 ## 현재 구현
 
-- TOSS OpenAPI 국내·미국 상장 종목 검색, 수정주가 일봉·1분봉과 실시간 체결 연결
+- TOSS OpenAPI 국내·미국 거래 가능 주식·ETF·ETN·REIT 등 전체 stock master 검색,
+  24시간 restart-safe local catalog와 7일 bounded stale fallback
 - KLineChart 10 기반 한국식 적색 상승/청색 하락 캔들, 중복 없는 왼쪽 과거 탐색,
   이동·확대·화면 맞춤·십자선·PNG 저장·전체 화면
 - 검색 가능한 105종 지표 catalog와 복수 instance 관리: 추가·개별 삭제, 계산 기간,
@@ -14,16 +15,19 @@ backtest/실시간 감시하는 로컬 단일 사용자 Quant 웹앱입니다. �
   ATR, Donchian/Keltner, MFI, Supertrend, HMA, GMMA 등 실제 계산 지표
 - 아이콘이 있는 19개 drawing: 추세선·ray·segment·channel·price line·브러시·박스·
   피보나치·피치포크·팬·annotation/tag와 전체 삭제·전략 저장/복원
-- Strategy v3 Rule Chain: AND/OR/NOT 중첩, Entry·Filter 각 64개 조건, 42개 진입·8개 필터·
-  20개 청산 preset, Long/Short, 1m~1w와 완료된 higher-timeframe filter
+- Strategy v3 Rule Chain: AND/OR/NOT 중첩, Entry·Filter 각 64개 조건, 43개 진입·8개 필터·
+  21개 청산 preset, Long/Short, 1m~1w와 완료된 higher-timeframe filter
 - Session/Weekly/Monthly/Anchored/Rolling VWAP, trend·momentum·breakout·mean reversion·
   volatility·volume·Ichimoku·market structure operand와 독립 Exit/Risk/Position/Execution
 - T close→T+1 open 기본 체결, 비용·spread·tick·conservative intrabar, partial exit와 전체
   trade/metric/Decision Trace 및 동일 Entry/Exit 비교
 - Supabase의 versioned 전략 JSON CRUD/import/export와 저장 전략별 백테스트 snapshot 이력
 - Supabase 미구성 개발·테스트 환경을 위한 `.qos/data` local JSON 호환 adapter
-- 별도 monitor process의 완성 봉 신호 감지, 영속 중복 방지와 Telegram private-chat 알림
-- 종목 선택 시 Entry 42개 전체를 같은 기간·비용으로 평가하는 역사적 수익률 추천과 상위 후보
+- 저장 전략 하나에 최대 50개 주식·ETF 감시 대상을 연결하고 종목별 ON/OFF·명시적 inverse
+  paper hedge를 관리하는 strategy-first watchlist
+- 별도 monitor process의 대상별 완성 봉 신호·영속 중복 방지·Telegram private-chat 전환 알림과
+  원격 저장소 장애 시 read-only 마지막 정상 전략 snapshot
+- 종목 선택 시 Entry 43개 전체를 같은 기간·비용으로 평가하는 역사적 수익률 추천과 상위 후보
 - 직접 설정 또는 timeframe별 자동 backtest 기간, 추천 적용과 한 번의 저장+paper tracking ON
 - 종목·timeframe 공유 candle cache, session-aligned gap repair와 provider 요청 관측
 
@@ -84,9 +88,18 @@ production server와 함께 시작합니다. 저장소별 singleton lease가 이
 npm run monitor
 ```
 
-저장 전략 view에서 `실시간 감시 시작`을 선택하면 monitor가 지원 timeframe의 완성 봉
-BUY/SELL 신호를 감지해 한 번만 전송합니다. v1/v2 호환은 유지되고 v3 monitor는 같은 strict
-Rule/indicator runtime을 사용합니다.
+저장 전략 view의 `다종목 신호 감시`에서 주식·ETF를 검색해 최대 50개 대상을 저장하고 대상별
+ON/OFF와 선택적 inverse ETF/ETN을 지정한 뒤 감시를 시작하면 monitor가 각 대상의 지원 timeframe
+완성 봉 BUY/SELL 신호를 한 번만 전송합니다. inverse가 있으면 primary SELL 때 primary paper SELL과
+hedge paper BUY, 다음 primary BUY 때 hedge paper SELL과 primary paper BUY를 한 알림으로 전송합니다.
+`15m Open × Session VWAP Cross` Entry와 matching Exit은 15분봉 시가 교차를 봉 종료 뒤 확정합니다.
+모두 paper 상태이며 실제 주문은 없습니다.
+같은 종목·timeframe dataset과 WebSocket 구독은 공유합니다. 대상이 없는 기존 v1/v2/v3 문서는
+대표 종목 하나를 계속 감시하며 v3 monitor는 같은 strict Rule/indicator runtime을 사용합니다.
+정상 전략 조회는 `.qos/data/monitor-strategies-v1.json`에 snapshot되고 원격 장애 때 감시에만
+재사용됩니다. 원격 CRUD 실패를 local write로 숨기지는 않습니다.
+종목 catalog는 정상 조회 후 `.qos/data/instrument-catalog-v1.json`에 24시간 보존되고, UI의
+`TOSS catalog 새로고침`으로만 명시적 갱신합니다.
 
 Strategy v3 API는 `GET /api/strategy-engine/catalog`, `POST /api/strategy-engine/compile`,
 `POST /api/strategy-engine/backtests`, `POST /api/strategy-recommendations`입니다. 비교는 동일 backtests endpoint에 최대 여섯 전략을
@@ -146,7 +159,7 @@ src/server/toss/     TOSS OAuth, 종목 master, candle, WebSocket adapter
 src/monitor/         완성 봉 평가, 중복 방지와 Telegram delivery
 scripts/             live monitor와 안전한 local release entrypoint
 supabase/            versioned Postgres migrations와 CLI config
-.qos/data/           gitignored local fallback·설정·monitor 상태
+.qos/data/           gitignored local fallback·종목 catalog·설정·monitor 상태
 .qos/runtime/        gitignored local production PID 상태와 redacted log
 tests/               unit/integration tests
 e2e/                 360/390/768/1440 browser/accessibility tests
@@ -166,4 +179,6 @@ e2e/                 360/390/768/1440 browser/accessibility tests
 - [Strategy v3 specification](SPEC-strategy-engine-v3.md)
 - [추천·기간·tracking specification](SPEC-strategy-recommendation-tracking.md)
 - [추천·tracking ExecPlan](.agent/execplans/0008-strategy-recommendation-tracking.md)
+- [종목 catalog·다종목 감시 specification](SPEC-instrument-catalog-multi-tracking.md)
+- [종목 catalog·다종목 감시 ExecPlan](.agent/execplans/0009-instrument-catalog-multi-tracking.md)
 - [저장소 작업 규칙](AGENTS.md)

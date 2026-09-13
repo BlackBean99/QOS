@@ -27,7 +27,7 @@ function executionFixture(): Candle[] {
 }
 
 describe("Strategy v3 full catalog execution", () => {
-  it("executes all 42 entry, 8 filter and 20 exit preset documents through one engine", () => {
+  it("executes all 43 entry, 8 filter and 21 exit preset documents through one engine", () => {
     const candles = executionFixture();
     const presets = [...ENTRY_PRESETS_V3, ...FILTER_PRESETS_V3, ...EXIT_PRESETS_V3];
     for (const preset of presets) {

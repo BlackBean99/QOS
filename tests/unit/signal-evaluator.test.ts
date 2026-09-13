@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { evaluateCompletedBarSignal } from "@/src/monitor/signal-evaluator";
 import { getInstrumentFixture } from "@/src/fixtures/markets";
 import type { NewStoredStrategy } from "@/src/domain/stored-strategy";
+import { createPresetStrategyV3 } from "@/src/domain/strategy-v3/catalog";
 
 const document: NewStoredStrategy = {
   name: "AAPL breakout",
@@ -140,5 +141,55 @@ describe("completed bar signal evaluator", () => {
       side: "BUY",
       barTimestamp: candles[7].date,
     });
+    expect(evaluateCompletedBarSignal(v3, { ...fixture, candles })?.reason).toContain("cross");
+  });
+
+  it("detects completed 15-minute open crosses above and below Session VWAP", () => {
+    const fixture = getInstrumentFixture("NASDAQ:AAPL");
+    const entry = createPresetStrategyV3("session-vwap-open-cross", "NASDAQ:AAPL", {
+      timeframe: "15m",
+    });
+    const exit = createPresetStrategyV3("session-vwap-open-breakdown-exit", "NASDAQ:AAPL", {
+      timeframe: "15m",
+    });
+    const strategy = { ...entry, exits: exit.exits };
+    const base = Date.parse("2026-09-11T13:30:00.000Z");
+    const candles = Array.from({ length: 17 }, (_, index) => {
+      const breakout = index === 14 || index === 15;
+      const breakdown = index === 16;
+      return {
+        date: new Date(base + index * 15 * 60_000).toISOString(),
+        open: breakout ? 102 : breakdown ? 98 : 99,
+        high: breakout ? 102 : 101,
+        low: breakout ? 98 : breakdown ? 97 : 99,
+        close: breakout ? 98 : breakdown ? 99 : 100,
+        volume: 1_000,
+      };
+    });
+    const v3: NewStoredStrategy = {
+      ...document,
+      name: "15m VWAP open cross",
+      strategy,
+      monitor: { enabled: true, interval: "15m" },
+    };
+
+    expect(
+      evaluateCompletedBarSignal(v3, {
+        ...fixture,
+        candles: candles.slice(0, 15),
+      }),
+    ).toMatchObject({ side: "BUY", barTimestamp: candles[14].date });
+    expect(evaluateCompletedBarSignal(v3, { ...fixture, candles })).toMatchObject({
+      side: "SELL",
+      barTimestamp: candles[16].date,
+    });
+
+    const changedFuture = [
+      ...candles.slice(0, 15),
+      { ...candles[15], open: 1_000, high: 1_001, low: 999, close: 1_000 },
+    ];
+    expect(
+      evaluateCompletedBarSignal(v3, { ...fixture, candles: changedFuture }),
+    ).not.toMatchObject({ barTimestamp: candles[14].date });
   });
 });

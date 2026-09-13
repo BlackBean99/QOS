@@ -38,7 +38,7 @@ describe("Strategy engine v3 routes", () => {
     const response = await getCatalog();
     const body = await response.json();
     expect(response.status).toBe(200);
-    expect(body.counts).toEqual({ entry: 42, filter: 8, exit: 20, total: 70 });
+    expect(body.counts).toEqual({ entry: 43, filter: 8, exit: 21, total: 72 });
     expect(
       body.presets.find((preset: { id: string }) => preset.id === "rolling-vwap-breakout"),
     ).toMatchObject({ role: "ENTRY", category: "VWAP" });

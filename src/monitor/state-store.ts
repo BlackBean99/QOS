@@ -3,6 +3,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import { InstrumentSnapshotSchema, type InstrumentSnapshot } from "@/src/domain/stored-strategy";
+
 const DeliverySchema = z
   .object({
     status: z.enum(["sent", "failed"]),
@@ -11,6 +13,34 @@ const DeliverySchema = z
     errorCode: z.string().max(80).nullable(),
   })
   .strict();
+
+const PaperPositionSchema = z
+  .object({
+    strategyId: z.uuid(),
+    instrumentId: z.string().trim().min(1).max(80),
+    hedgeInstrumentId: z.string().trim().min(1).max(80).nullable(),
+    heldInstrument: InstrumentSnapshotSchema.nullable().default(null),
+    leg: z.enum(["WAITING", "LONG_PRIMARY", "LONG_HEDGE"]),
+    signalAt: z.iso.datetime({ offset: true }),
+    updatedAt: z.iso.datetime({ offset: true }),
+  })
+  .strict()
+  .superRefine((position, context) => {
+    const heldId = position.heldInstrument?.instrumentId;
+    const expectedHeldId =
+      position.leg === "LONG_PRIMARY"
+        ? position.instrumentId
+        : position.leg === "LONG_HEDGE"
+          ? position.hedgeInstrumentId
+          : null;
+    if (heldId && heldId !== expectedHeldId) {
+      context.addIssue({
+        code: "custom",
+        path: ["heldInstrument"],
+        message: "paper leg와 실제 보유 종목 snapshot이 일치해야 합니다.",
+      });
+    }
+  });
 
 const StateSchema = z
   .object({
@@ -21,9 +51,13 @@ const StateSchema = z
     lastErrorCode: z.string().max(80).nullable(),
     providerRequests: z.number().int().nonnegative().default(0),
     datasetCacheHits: z.number().int().nonnegative().default(0),
+    trackedTargets: z.number().int().nonnegative().default(0),
     lastProviderSyncAt: z.iso.datetime({ offset: true }).nullable().default(null),
     lastStrategyRefreshAt: z.iso.datetime({ offset: true }).nullable().default(null),
+    strategySource: z.enum(["PRIMARY", "SNAPSHOT"]).default("PRIMARY"),
+    strategySnapshotAt: z.iso.datetime({ offset: true }).nullable().default(null),
     deliveries: z.record(z.string().max(300), DeliverySchema),
+    positions: z.record(z.string().max(240), PaperPositionSchema).default({}),
   })
   .strict();
 
@@ -38,16 +72,33 @@ const EMPTY_STATE: MonitorState = {
   lastErrorCode: null,
   providerRequests: 0,
   datasetCacheHits: 0,
+  trackedTargets: 0,
   lastProviderSyncAt: null,
   lastStrategyRefreshAt: null,
+  strategySource: "PRIMARY",
+  strategySnapshotAt: null,
   deliveries: {},
+  positions: {},
 };
 
 export interface MonitorTelemetry {
   providerRequests: number;
   datasetCacheHits: number;
+  trackedTargets: number;
   lastProviderSyncAt: string | null;
   lastStrategyRefreshAt: string | null;
+  strategySource?: "PRIMARY" | "SNAPSHOT";
+  strategySnapshotAt?: string | null;
+}
+
+export interface PaperPositionUpdate {
+  positionKey: string;
+  strategyId: string;
+  instrumentId: string;
+  hedgeInstrumentId: string | null;
+  heldInstrument: InstrumentSnapshot | null;
+  leg: "WAITING" | "LONG_PRIMARY" | "LONG_HEDGE";
+  signalAt: string;
 }
 
 export class MonitorStateStore {
@@ -73,6 +124,7 @@ export class MonitorStateStore {
       const state = StateSchema.parse(operation(await this.#read()));
       const directory = path.dirname(this.#filePath);
       await mkdir(directory, { recursive: true, mode: 0o700 });
+      await chmod(directory, 0o700);
       const temporary = `${this.#filePath}.${randomUUID()}.tmp`;
       try {
         await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, {
@@ -129,6 +181,49 @@ export class MonitorStateStore {
     });
   }
 
+  async position(key: string): Promise<z.infer<typeof PaperPositionSchema> | null> {
+    return (await this.#read()).positions[key] ?? null;
+  }
+
+  async recordTransition(key: string, update: PaperPositionUpdate): Promise<void> {
+    await this.#mutate((state) => {
+      const now = new Date().toISOString();
+      const deliveries = {
+        ...state.deliveries,
+        [key]: {
+          status: "sent" as const,
+          attempts: Math.min(3, (state.deliveries[key]?.attempts ?? 0) + 1),
+          attemptedAt: now,
+          errorCode: null,
+        },
+      };
+      return {
+        ...state,
+        deliveries: Object.fromEntries(
+          Object.entries(deliveries)
+            .toSorted(([, left], [, right]) => right.attemptedAt.localeCompare(left.attemptedAt))
+            .slice(0, 1_000),
+        ),
+        positions: Object.fromEntries(
+          Object.entries({
+            ...state.positions,
+            [update.positionKey]: {
+              strategyId: update.strategyId,
+              instrumentId: update.instrumentId,
+              hedgeInstrumentId: update.hedgeInstrumentId,
+              heldInstrument: update.heldInstrument,
+              leg: update.leg,
+              signalAt: update.signalAt,
+              updatedAt: now,
+            },
+          })
+            .toSorted(([, left], [, right]) => right.updatedAt.localeCompare(left.updatedAt))
+            .slice(0, 1_000),
+        ),
+      };
+    });
+  }
+
   async heartbeat(
     status: MonitorStatus,
     enabledStrategies: number,
@@ -154,8 +249,12 @@ export class MonitorStateStore {
     lastErrorCode: string | null;
     providerRequests: number;
     datasetCacheHits: number;
+    trackedTargets: number;
     lastProviderSyncAt: string | null;
     lastStrategyRefreshAt: string | null;
+    strategySource: "PRIMARY" | "SNAPSHOT";
+    strategySnapshotAt: string | null;
+    positions: Array<z.infer<typeof PaperPositionSchema>>;
   }> {
     const state = await this.#read();
     const values = Object.values(state.deliveries);
@@ -168,8 +267,14 @@ export class MonitorStateStore {
       lastErrorCode: state.lastErrorCode,
       providerRequests: state.providerRequests,
       datasetCacheHits: state.datasetCacheHits,
+      trackedTargets: state.trackedTargets,
       lastProviderSyncAt: state.lastProviderSyncAt,
       lastStrategyRefreshAt: state.lastStrategyRefreshAt,
+      strategySource: state.strategySource,
+      strategySnapshotAt: state.strategySnapshotAt,
+      positions: Object.values(state.positions).toSorted((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt),
+      ),
     };
   }
 }

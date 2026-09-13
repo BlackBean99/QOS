@@ -650,6 +650,36 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
       ]),
   }),
   entry({
+    id: "session-vwap-open-cross",
+    name: "15m Open × Session VWAP Cross",
+    category: "VWAP",
+    description: "완료된 15분봉 시가가 정규 세션 VWAP 위로 교차할 때 진입합니다.",
+    purpose: "Session-open anchored intraday transition",
+    dataRequirements: ["15-minute OHLCV", "Exchange session"],
+    recommendedRegimes: ["TRENDING", "VOLATILITY_EXPANSION"],
+    parameters: [
+      {
+        key: "timeframe",
+        label: "신호 봉",
+        description: "15분봉 완료 뒤 시가와 최종 Session VWAP을 비교합니다.",
+        type: "TIMEFRAME",
+        defaultValue: "15m",
+        options: ["15m"],
+      },
+    ],
+    keywords: ["VWAP", "session", "15m", "open", "시가", "이탈", "돌파"],
+    create: (context) =>
+      group("session-vwap-open-entry", [
+        condition(
+          "session-vwap-open-cross",
+          price(context, "open"),
+          direction(context, "CROSS_ABOVE", "CROSS_BELOW"),
+          indicator(context, { kind: "VWAP", variant: { kind: "SESSION" }, output: "VALUE" }),
+          "15m open crosses Session VWAP",
+        ),
+      ]),
+  }),
+  entry({
     id: "vwap-reclaim",
     name: "VWAP Reclaim",
     category: "VWAP",
@@ -1969,6 +1999,40 @@ export const EXIT_PRESETS_V3: ExitCatalogPreset[] = [
       ),
   }),
   exit({
+    id: "session-vwap-open-breakdown-exit",
+    name: "15m Open × Session VWAP Breakdown",
+    category: "VWAP",
+    description: "완료된 15분봉 시가가 Session VWAP 아래로 교차하면 청산합니다.",
+    purpose: "Session VWAP reversal exit",
+    dataRequirements: ["15-minute OHLCV", "Exchange session"],
+    recommendedRegimes: ["TRENDING", "VOLATILITY_EXPANSION"],
+    parameters: [
+      {
+        key: "timeframe",
+        label: "신호 봉",
+        description: "15분봉 완료 뒤 시가와 최종 Session VWAP을 비교합니다.",
+        type: "TIMEFRAME",
+        defaultValue: "15m",
+        options: ["15m"],
+      },
+    ],
+    keywords: ["VWAP exit", "session", "15m", "open", "시가", "이탈"],
+    create: (context) =>
+      conditionExit(
+        "session-vwap-open-breakdown",
+        "15m open below Session VWAP",
+        group("session-vwap-open-exit-rule", [
+          condition(
+            "session-vwap-open-exit-cross",
+            price(context, "open"),
+            direction(context, "CROSS_BELOW", "CROSS_ABOVE"),
+            indicator(context, { kind: "VWAP", variant: { kind: "SESSION" }, output: "VALUE" }),
+            "15m open crosses below Session VWAP",
+          ),
+        ]),
+      ),
+  }),
+  exit({
     id: "kijun-breakdown-exit",
     name: "Kijun Breakdown",
     category: "ICHIMOKU",
@@ -2186,7 +2250,11 @@ export function createPresetStrategyV3(
   const preset = STRATEGY_CATALOG_V3.find((candidate) => candidate.id === presetId);
   if (!preset) throw new Error(`Unknown Strategy v3 preset: ${presetId}`);
   const context: PresetContext = {
-    timeframe: options.timeframe ?? "5m",
+    timeframe:
+      options.timeframe ??
+      (preset.id === "session-vwap-open-cross" || preset.id === "session-vwap-open-breakdown-exit"
+        ? "15m"
+        : "5m"),
     side: options.side ?? "LONG",
   };
   if (!preset.supportedSides.includes(context.side)) {
@@ -2194,7 +2262,14 @@ export function createPresetStrategyV3(
   }
   const market = instrumentId.slice(0, instrumentId.indexOf(":")) as StrategyDefinitionV3["market"];
   getMarketDefaults(market);
-  const selectedExits = preset.role === "EXIT" ? preset.create(context) : baselineExits();
+  const selectedExits =
+    preset.id === "session-vwap-open-cross"
+      ? EXIT_PRESETS_V3.find(
+          (candidate) => candidate.id === "session-vwap-open-breakdown-exit",
+        )!.create(context)
+      : preset.role === "EXIT"
+        ? preset.create(context)
+        : baselineExits();
   const needsInitialStop = selectedExits.some(
     (item) =>
       item.kind === "RISK_REWARD" || item.kind === "BREAK_EVEN" || item.kind === "SCALE_OUT",

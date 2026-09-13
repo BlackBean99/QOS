@@ -12,8 +12,8 @@ import { StrategyDefinitionV3Schema } from "@/src/domain/strategy-v3/schema";
 
 describe("Strategy v3 preset catalog", () => {
   it("registers every required entry, exit and filter preset with unique stable ids", () => {
-    expect(ENTRY_PRESETS_V3).toHaveLength(42);
-    expect(EXIT_PRESETS_V3).toHaveLength(20);
+    expect(ENTRY_PRESETS_V3).toHaveLength(43);
+    expect(EXIT_PRESETS_V3).toHaveLength(21);
     expect(FILTER_PRESETS_V3).toHaveLength(8);
 
     const all = [...ENTRY_PRESETS_V3, ...EXIT_PRESETS_V3, ...FILTER_PRESETS_V3];
@@ -99,5 +99,22 @@ describe("Strategy v3 preset catalog", () => {
     expect(strategy.name).toBe("VWAP Breakout + Ichimoku Exit");
     expect(strategy.exits.map((exit) => exit.id)).toEqual(["kijun-breakdown", "atr-trailing"]);
     expect(strategy.overlays).toHaveLength(2);
+  });
+
+  it("models the 15-minute session VWAP open cross as editable entry and exit rules", () => {
+    const entry = createPresetStrategyV3("session-vwap-open-cross", "NASDAQ:AAPL", {
+      timeframe: "15m",
+    });
+    const exit = createPresetStrategyV3("session-vwap-open-breakdown-exit", "NASDAQ:AAPL", {
+      timeframe: "15m",
+    });
+
+    expect(JSON.stringify(entry.entry)).toContain('"field":"open"');
+    expect(JSON.stringify(entry.entry)).toContain('"operator":"CROSS_ABOVE"');
+    expect(JSON.stringify(entry.entry)).toContain('"kind":"SESSION"');
+    expect(JSON.stringify(entry.exits)).toContain('"id":"session-vwap-open-exit-cross"');
+    expect(JSON.stringify(exit.exits)).toContain('"field":"open"');
+    expect(JSON.stringify(exit.exits)).toContain('"operator":"CROSS_BELOW"');
+    expect(createPresetStrategyV3("session-vwap-open-cross", "NASDAQ:AAPL").timeframe).toBe("15m");
   });
 });

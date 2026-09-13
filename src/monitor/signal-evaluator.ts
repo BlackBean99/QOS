@@ -4,6 +4,7 @@ import { runBacktestV3 } from "@/src/domain/backtest-v3/engine";
 import type { NewStoredStrategy } from "@/src/domain/stored-strategy";
 import type { IntradayFixture } from "@/src/fixtures/intraday";
 import type { MarketFixture } from "@/src/fixtures/markets";
+import type { DecisionTrace, GroupDecisionTrace } from "@/src/domain/strategy-runtime/rules";
 
 export interface DetectedSignal {
   instrumentId: string;
@@ -23,6 +24,48 @@ const timeframeMilliseconds = {
   "1d": 86_400_000,
   "1w": 604_800_000,
 } as const;
+
+const operatorLabel = {
+  GT: ">",
+  GTE: ">=",
+  LT: "<",
+  LTE: "<=",
+  EQ: "==",
+  CROSS_ABOVE: "cross above",
+  CROSS_BELOW: "cross below",
+  TOUCH: "touch",
+  BREAK_ABOVE: "break above",
+  BREAK_BELOW: "break below",
+  BETWEEN: "between",
+} as const;
+
+function traceConditions(trace: DecisionTrace): DecisionTrace[] {
+  if (trace.type === "CONDITION") return trace.passed ? [trace] : [];
+  return trace.children.flatMap(traceConditions);
+}
+
+function valueLabel(value: number | null | undefined): string {
+  return value === null || value === undefined
+    ? "n/a"
+    : new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 4 }).format(value);
+}
+
+function decisionReason(trace: GroupDecisionTrace | undefined, fallback: string): string {
+  if (!trace) return fallback;
+  const conditions = traceConditions(trace).filter((item) => item.type === "CONDITION");
+  if (conditions.length === 0) return fallback;
+  return conditions
+    .slice(0, 4)
+    .map((item) => {
+      if (item.type !== "CONDITION") return "";
+      const label = item.label ?? item.id;
+      if (item.operator === "BETWEEN") {
+        return `${label}: ${valueLabel(item.current.left)} between ${valueLabel(item.current.lower)}–${valueLabel(item.current.upper)} ✓`;
+      }
+      return `${label}: ${valueLabel(item.current.left)} ${operatorLabel[item.operator]} ${valueLabel(item.current.right)} ✓`;
+    })
+    .join(" · ");
+}
 
 function materializingBar(fixture: MarketFixture, timeframe: keyof typeof timeframeMilliseconds) {
   const latest = fixture.candles.at(-1);
@@ -98,7 +141,7 @@ export function evaluateCompletedBarSignal(
         side: "SELL",
         barTimestamp: latest.date,
         price: latest.close,
-        reason: sold.exitReason ?? "Strategy v3 exit rule chain",
+        reason: decisionReason(sold.exitTrace, sold.exitReason ?? "Strategy v3 exit rule chain"),
       };
     }
     const bought = result.trades.find((trade) => trade.entrySignalAt === latest.date);
@@ -108,7 +151,7 @@ export function evaluateCompletedBarSignal(
           side: "BUY",
           barTimestamp: latest.date,
           price: latest.close,
-          reason: "Strategy v3 entry/filter rule chain passed",
+          reason: decisionReason(bought.entryTrace, "Strategy v3 entry/filter rule chain passed"),
         }
       : null;
   }

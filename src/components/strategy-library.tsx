@@ -8,6 +8,8 @@ import {
   createInstrumentSnapshot,
   MAX_STRATEGY_DOCUMENT_BYTES,
   type ChartSettings,
+  type InstrumentSnapshot,
+  type MonitorTargetControl,
   type StoredStrategy,
 } from "@/src/domain/stored-strategy";
 import type { Strategy } from "@/src/domain/strategy";
@@ -15,6 +17,7 @@ import type { StrategyDefinitionV3, StrategyTimeframe } from "@/src/domain/strat
 import type { InterpretationResult } from "@/src/domain/strategy";
 import { STRATEGY_PRESETS } from "@/src/domain/strategy-presets";
 import { StrategyBacktestHistory } from "./strategy-backtest-history";
+import { StrategyMonitorTargets } from "./strategy-monitor-targets";
 
 type ExecutableStrategy = Strategy | ResearchStrategy | StrategyDefinitionV3;
 
@@ -249,7 +252,7 @@ export function StrategyLibrary({
           instrument: createInstrumentSnapshot(instrument),
           strategy: currentStrategy,
           chart: { ...chart, period: chartPeriod(currentStrategy.timeframe) },
-          monitor: { enabled: selected.monitor.enabled, interval: currentStrategy.timeframe },
+          monitor: { ...selected.monitor, interval: currentStrategy.timeframe },
         }),
       });
       const payload = (await response.json()) as {
@@ -296,6 +299,48 @@ export function StrategyLibrary({
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "감시 상태를 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveMonitorTargets(
+    document: StoredStrategy,
+    targets: InstrumentSnapshot[],
+    targetControls: MonitorTargetControl[],
+    enable: boolean,
+  ) {
+    setBusy(true);
+    setStatus("다종목 감시 설정을 저장하는 중입니다…");
+    try {
+      const response = await fetchWithTimeout(`/api/strategies/${document.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          editableDocument(document, {
+            ...document.monitor,
+            enabled: enable,
+            targets,
+            targetControls,
+          }),
+        ),
+      });
+      const payload = (await response.json()) as {
+        strategy?: StoredStrategy;
+        error?: { message?: string };
+      };
+      if (!response.ok || !payload.strategy) {
+        throw new Error(payload.error?.message ?? "다종목 감시 설정을 저장하지 못했습니다.");
+      }
+      applyCommittedStrategy(payload.strategy);
+      await synchronizeAfterCommit(
+        enable
+          ? `${targetControls.filter((control) => control.enabled).length}개 종목의 감시를 예약했습니다. monitor가 60초 안에 반영합니다.`
+          : `${targets.length}개 감시 대상과 종목별 설정을 저장하고 감시는 중지했습니다.`,
+        payload.strategy.id,
+      );
+    } catch (error) {
+      setStatus(readableRequestError(error, "다종목 감시 설정을 저장하지 못했습니다."));
     } finally {
       setBusy(false);
     }
@@ -581,6 +626,12 @@ export function StrategyLibrary({
                   <dd>{selected.chart.drawings.length}개</dd>
                 </div>
               </dl>
+              <StrategyMonitorTargets
+                key={`${selected.id}:${selected.revision}`}
+                document={selected}
+                busy={busy}
+                onSave={saveMonitorTargets}
+              />
               <details>
                 <summary>전략 JSON 보기</summary>
                 <pre tabIndex={0}>{JSON.stringify(selected, null, 2)}</pre>

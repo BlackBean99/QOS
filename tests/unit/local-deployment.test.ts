@@ -153,8 +153,8 @@ describe("local deployment safety contract", () => {
   });
 
   it("requires the complete catalog and a multi-entry compiler result for health", () => {
-    expect(isHealthyCatalog({ counts: { entry: 42, filter: 8, exit: 20, total: 70 } })).toBe(true);
-    expect(isHealthyCatalog({ counts: { entry: 2, filter: 8, exit: 20, total: 30 } })).toBe(false);
+    expect(isHealthyCatalog({ counts: { entry: 43, filter: 8, exit: 21, total: 72 } })).toBe(true);
+    expect(isHealthyCatalog({ counts: { entry: 2, filter: 8, exit: 21, total: 31 } })).toBe(false);
 
     expect(
       isHealthyCompilerResult({

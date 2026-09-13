@@ -8,18 +8,28 @@ import type { TossInstrumentSearch } from "@/src/server/toss/instrument-search";
 describe("TOSS market routes", () => {
   it("validates a non-empty search and returns provider instruments", async () => {
     const search = {
-      search: vi.fn(async () => [
-        {
-          instrumentId: "NASDAQ:AAPL",
-          market: "NASDAQ" as const,
-          symbol: "AAPL",
-          displayName: "애플",
-          currency: "USD" as const,
-          timezone: "America/New_York" as const,
-          synthetic: false,
-          aliases: [],
+      searchWithMetadata: vi.fn(async () => ({
+        instruments: [
+          {
+            instrumentId: "NASDAQ:AAPL",
+            market: "NASDAQ" as const,
+            symbol: "AAPL",
+            displayName: "애플",
+            currency: "USD" as const,
+            timezone: "America/New_York" as const,
+            synthetic: false,
+            aliases: [],
+            securityType: "STOCK",
+          },
+        ],
+        cache: {
+          status: "HIT" as const,
+          origin: "DISK" as const,
+          fetchedAt: "2026-09-01T00:00:00.000Z",
+          expiresAt: "2026-09-02T00:00:00.000Z",
+          markets: 4,
         },
-      ]),
+      })),
     } as unknown as TossInstrumentSearch;
     const get = createGetInstruments(search);
 
@@ -31,8 +41,38 @@ describe("TOSS market routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       instruments: [{ instrumentId: "NASDAQ:AAPL", synthetic: false }],
       source: "TOSS OpenAPI",
+      cache: { status: "HIT", markets: 4 },
     });
-    expect(search.search).toHaveBeenCalledWith("aapl", { region: "US", limit: 20 });
+    expect(search.searchWithMetadata).toHaveBeenCalledWith("aapl", {
+      region: "US",
+      limit: 20,
+      refresh: false,
+    });
+  });
+
+  it("validates and forwards an explicit catalog refresh", async () => {
+    const search = {
+      searchWithMetadata: vi.fn(async () => ({
+        instruments: [],
+        cache: {
+          status: "REFRESHED" as const,
+          origin: "PROVIDER" as const,
+          fetchedAt: "2026-09-01T00:00:00.000Z",
+          expiresAt: "2026-09-02T00:00:00.000Z",
+          markets: 3,
+        },
+      })),
+    } as unknown as TossInstrumentSearch;
+    const response = await createGetInstruments(search)(
+      new Request("http://localhost/api/instruments?query=ETF&region=KR&refresh=true"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(search.searchWithMetadata).toHaveBeenCalledWith("ETF", {
+      region: "KR",
+      limit: 20,
+      refresh: true,
+    });
   });
 
   it("does not substitute synthetic instruments for an empty query", async () => {

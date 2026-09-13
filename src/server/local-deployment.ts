@@ -134,10 +134,10 @@ const CatalogHealthSchema = z
   .object({
     counts: z
       .object({
-        entry: z.literal(42),
+        entry: z.literal(43),
         filter: z.literal(8),
-        exit: z.literal(20),
-        total: z.literal(70),
+        exit: z.literal(21),
+        total: z.literal(72),
       })
       .strict(),
   })

@@ -174,12 +174,62 @@ export function createInstrumentSnapshot(instrument: InstrumentSummary): Instrum
   });
 }
 
+export const MonitorTargetControlSchema = z
+  .object({
+    instrumentId: InstrumentIdSchema,
+    enabled: z.boolean(),
+    hedgeInstrument: InstrumentSnapshotSchema.optional(),
+  })
+  .strict()
+  .superRefine((control, context) => {
+    if (control.hedgeInstrument?.instrumentId === control.instrumentId) {
+      context.addIssue({
+        code: "custom",
+        path: ["hedgeInstrument"],
+        message: "헷지 종목은 원본 감시 종목과 달라야 합니다.",
+      });
+    }
+  });
+export type MonitorTargetControl = z.infer<typeof MonitorTargetControlSchema>;
+
 export const MonitorSettingsSchema = z
   .object({
     enabled: z.boolean(),
     interval: StrategyTimeframeSchema,
+    targets: z.array(InstrumentSnapshotSchema).max(50).optional(),
+    targetControls: z.array(MonitorTargetControlSchema).max(50).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((monitor, context) => {
+    const identifiers = monitor.targets?.map((target) => target.instrumentId) ?? [];
+    if (new Set(identifiers).size !== identifiers.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["targets"],
+        message: "감시 대상 종목은 중복할 수 없습니다.",
+      });
+    }
+    const controlIds = monitor.targetControls?.map((control) => control.instrumentId) ?? [];
+    if (new Set(controlIds).size !== controlIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["targetControls"],
+        message: "감시 대상 제어는 종목별로 하나만 저장할 수 있습니다.",
+      });
+    }
+    if (monitor.targets) {
+      const targetIds = new Set(identifiers);
+      monitor.targetControls?.forEach((control, index) => {
+        if (!targetIds.has(control.instrumentId)) {
+          context.addIssue({
+            code: "custom",
+            path: ["targetControls", index, "instrumentId"],
+            message: "감시 대상 제어는 저장된 감시 대상 종목만 참조할 수 있습니다.",
+          });
+        }
+      });
+    }
+  });
 
 const ExecutableStrategySchema = z.union([
   StrategySchema,
@@ -221,6 +271,20 @@ function validateStrategyDocument(
       message: "감시 주기는 전략 주기와 일치해야 합니다.",
     });
   }
+  const targets =
+    document.monitor.targets && document.monitor.targets.length > 0
+      ? document.monitor.targets
+      : [document.instrument];
+  const targetIds = new Set(targets.map((target) => target.instrumentId));
+  document.monitor.targetControls?.forEach((control, index) => {
+    if (!targetIds.has(control.instrumentId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["monitor", "targetControls", index, "instrumentId"],
+        message: "감시 대상 제어는 실제 감시 대상 종목만 참조할 수 있습니다.",
+      });
+    }
+  });
 }
 
 export const NewStoredStrategySchema = z

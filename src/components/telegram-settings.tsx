@@ -19,8 +19,17 @@ interface MonitorStatus {
   lastErrorCode: string | null;
   providerRequests?: number;
   datasetCacheHits?: number;
+  trackedTargets?: number;
   lastProviderSyncAt?: string | null;
   lastStrategyRefreshAt?: string | null;
+  strategySource?: "PRIMARY" | "SNAPSHOT";
+  strategySnapshotAt?: string | null;
+  positions?: Array<{
+    strategyId: string;
+    instrumentId: string;
+    hedgeInstrumentId: string | null;
+    leg: "WAITING" | "LONG_PRIMARY" | "LONG_HEDGE";
+  }>;
 }
 
 const MONITOR_LABEL: Record<MonitorStatus["status"], string> = {
@@ -147,14 +156,25 @@ export function TelegramSettings() {
               : "TELEGRAM_BOT_TOKEN 서버 설정이 필요합니다."}
         </p>
         <p className={`monitor-runtime monitor-runtime-${monitorState}`}>
-          {MONITOR_LABEL[monitorState]} · 전략 {monitor?.enabledStrategies ?? 0} · 전송{" "}
-          {monitor?.deliveredSignals ?? 0} · 실패 {monitor?.failedSignals ?? 0}
+          {MONITOR_LABEL[monitorState]} · 전략 {monitor?.enabledStrategies ?? 0} · 감시 종목{" "}
+          {monitor?.trackedTargets ?? 0} · 전송 {monitor?.deliveredSignals ?? 0} · 실패{" "}
+          {monitor?.failedSignals ?? 0}
         </p>
         <p className="monitor-heartbeat">{heartbeatLabel(monitor?.heartbeatAt)}</p>
         <p className="monitor-heartbeat">
           TOSS REST {monitor?.providerRequests ?? 0}회 · 공유 dataset cache hit{" "}
           {monitor?.datasetCacheHits ?? 0}회
         </p>
+        <p className="monitor-heartbeat">
+          전략 source {monitor?.strategySource ?? "PRIMARY"} · paper position{" "}
+          {monitor?.positions?.filter((position) => position.leg !== "WAITING").length ?? 0}개
+        </p>
+        {monitor?.strategySource === "SNAPSHOT" ? (
+          <p className="monitor-recovery">
+            원격 전략 저장소에 연결하지 못해 마지막 정상 snapshot으로 감시 중입니다. 새 설정은 원격
+            연결 회복 뒤 반영됩니다. snapshot {heartbeatLabel(monitor.strategySnapshotAt)}
+          </p>
+        ) : null}
         {monitorState === "error" ? (
           <p className="monitor-recovery">
             <code>npm run deploy:local:status</code>로 server와 monitor를 확인하고 필요하면{" "}
@@ -190,6 +210,18 @@ export function TelegramSettings() {
           테스트 알림
         </button>
       </div>
+      <details className="telegram-setup-guide">
+        <summary>처음 연결하는 방법</summary>
+        <ol>
+          <li>Telegram의 @BotFather에서 새 bot을 만들고 token을 발급합니다.</li>
+          <li>
+            token은 브라우저가 아니라 서버의 <code>.env.local</code>에{" "}
+            <code>TELEGRAM_BOT_TOKEN</code>으로 저장한 뒤 local release를 다시 시작합니다.
+          </li>
+          <li>만든 bot의 private chat에 아무 메시지를 한 번 보내고 위 ‘채팅 연결’을 누릅니다.</li>
+          <li>‘테스트 알림’이 도착하면 저장 전략에서 종목별 감시를 ON 합니다.</li>
+        </ol>
+      </details>
       <p className="telegram-message" role="status" aria-live="polite">
         {message}
       </p>

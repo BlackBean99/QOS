@@ -39,6 +39,16 @@ const SearchResponseSchema = z
   .object({
     instruments: z.array(InstrumentSummarySchema),
     source: z.literal("TOSS OpenAPI"),
+    cache: z
+      .object({
+        status: z.enum(["HIT", "REFRESHED", "STALE"]),
+        origin: z.enum(["MEMORY", "DISK", "PROVIDER", "MIXED"]).nullable(),
+        fetchedAt: z.iso.datetime({ offset: true }).nullable(),
+        expiresAt: z.iso.datetime({ offset: true }).nullable(),
+        markets: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
   })
   .passthrough();
 
@@ -189,8 +199,7 @@ export function MarketWorkspace() {
 
   const handleChartChange = useCallback((next: ChartSettings) => setChart(next), []);
 
-  async function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function runInstrumentSearch(forceRefresh = false) {
     if (!query.trim() || searching) return;
     const requestId = searchRequestRef.current + 1;
     searchRequestRef.current = requestId;
@@ -200,6 +209,7 @@ export function MarketWorkspace() {
     setSearchNotice("");
     try {
       const params = new URLSearchParams({ query: query.trim(), region });
+      if (forceRefresh) params.set("refresh", "true");
       const response = await fetch(`/api/instruments?${params.toString()}`, {
         headers: { accept: "application/json" },
       });
@@ -215,7 +225,25 @@ export function MarketWorkspace() {
         setSearchError("일치하는 실제 상장 종목이 없습니다.");
         setSearchRecovery("시장과 종목명 또는 티커를 확인한 뒤 다시 조회하세요.");
       } else {
-        setSearchNotice(`TOSS 실제 종목 ${parsed.data.instruments.length}건을 찾았습니다.`);
+        const cache = parsed.data.cache;
+        const fetchedAt = cache?.fetchedAt
+          ? new Intl.DateTimeFormat("ko-KR", {
+              dateStyle: "short",
+              timeStyle: "short",
+            }).format(new Date(cache.fetchedAt))
+          : null;
+        const cacheNotice = cache
+          ? `${
+              cache.status === "STALE"
+                ? " · 이전 local catalog 사용"
+                : cache.status === "REFRESHED"
+                  ? " · TOSS catalog 갱신"
+                  : " · local catalog cache"
+            } · ${cache.origin ?? "UNKNOWN"}${fetchedAt ? ` · ${fetchedAt} 기준` : ""}`
+          : "";
+        setSearchNotice(
+          `TOSS 거래 가능 종목 ${parsed.data.instruments.length}건을 찾았습니다.${cacheNotice}`,
+        );
       }
     } catch (error) {
       if (requestId !== searchRequestRef.current) return;
@@ -225,6 +253,11 @@ export function MarketWorkspace() {
     } finally {
       if (requestId === searchRequestRef.current) setSearching(false);
     }
+  }
+
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void runInstrumentSearch();
   }
 
   function changeRegion(nextRegion: "KR" | "US") {
@@ -417,7 +450,7 @@ export function MarketWorkspace() {
               <span className="eyebrow">01 / MARKET DISCOVERY</span>
               <h1 id="provider-search-title">실제 종목 검색</h1>
             </div>
-            <p>TOSS OpenAPI의 거래 가능 국내·미국 보통주를 이름이나 티커로 찾습니다.</p>
+            <p>TOSS OpenAPI의 거래 가능 주식·ETF·ETN·REIT 등을 이름이나 티커로 찾습니다.</p>
           </header>
           <form onSubmit={search} role="search">
             <fieldset>
@@ -453,9 +486,22 @@ export function MarketWorkspace() {
                 aria-describedby={searchError ? "provider-search-error" : undefined}
               />
             </label>
-            <button className="primary-button" type="submit" disabled={searching || !query.trim()}>
-              {searching ? "TOSS 조회 중" : "종목 조회"}
-            </button>
+            <div className="provider-search-actions">
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={searching || !query.trim()}
+              >
+                {searching ? "TOSS 조회 중" : "종목 조회"}
+              </button>
+              <button
+                type="button"
+                disabled={searching || !query.trim()}
+                onClick={() => void runInstrumentSearch(true)}
+              >
+                TOSS catalog 새로고침
+              </button>
+            </div>
           </form>
           {searchError ? (
             <p id="provider-search-error" className="provider-error" role="alert">
@@ -483,7 +529,9 @@ export function MarketWorkspace() {
                         {instrument.symbol} · {instrument.market}
                       </small>
                     </span>
-                    <em>{instrument.currency}</em>
+                    <em>
+                      {instrument.securityType ?? "기타"} · {instrument.currency}
+                    </em>
                   </button>
                 </li>
               ))}

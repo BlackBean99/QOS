@@ -14,6 +14,10 @@ const QuerySchema = z
     query: z.string().trim().min(1).max(80),
     region: z.enum(["KR", "US"]).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
+    refresh: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
   })
   .strict();
 
@@ -25,6 +29,7 @@ export function createGetInstruments(search: TossInstrumentSearch) {
       query: url.searchParams.get("query") ?? "",
       region: url.searchParams.get("region") ?? undefined,
       limit: url.searchParams.get("limit") ?? undefined,
+      refresh: url.searchParams.get("refresh") ?? undefined,
     });
     if (!parsed.success) {
       return apiError(
@@ -39,11 +44,12 @@ export function createGetInstruments(search: TossInstrumentSearch) {
       );
     }
     try {
-      const instruments = await search.search(parsed.data.query, {
+      const result = await search.searchWithMetadata(parsed.data.query, {
         region: parsed.data.region,
         limit: parsed.data.limit,
+        refresh: parsed.data.refresh,
       });
-      return jsonNoStore({ instruments, source: "TOSS OpenAPI", requestId: id });
+      return jsonNoStore({ ...result, source: "TOSS OpenAPI", requestId: id });
     } catch (error) {
       return tossErrorResponse(error, id);
     }

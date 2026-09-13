@@ -92,7 +92,7 @@ describe("strategy recommendation route", () => {
     const secondPayload = await second.json();
 
     expect(first.status).toBe(200);
-    expect(firstPayload.methodology.candidatesEvaluated).toBe(42);
+    expect(firstPayload.methodology.candidatesEvaluated).toBe(43);
     expect(firstPayload.recommendation).toMatchObject({
       presetId: "rolling-vwap-breakout",
       metrics: { totalReturnPercent: 42 },

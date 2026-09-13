@@ -15,6 +15,8 @@
 - [ADR-0009: Strategy v3 rule chain and conservative execution](ADR-0009-strategy-v3-rule-chain-and-execution.md)
 - [ADR-0010: Verified loopback releases before MVP](ADR-0010-verified-loopback-releases.md)
 - [ADR-0011: Historical all-entry recommendation and efficient tracking](ADR-0011-historical-recommendation-and-efficient-tracking.md)
+- [ADR-0012: Persistent instrument catalog and multi-target monitoring](ADR-0012-persistent-instrument-catalog-and-multi-target-monitoring.md)
+- [ADR-0013: Monitor snapshot fallback and explicit paper hedge state](ADR-0013-monitor-snapshot-and-paper-hedge-state.md)
 
 ## Naming
 

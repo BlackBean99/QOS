@@ -12,6 +12,7 @@ import type { TelegramClient } from "@/src/server/telegram";
 import type { TossClient } from "@/src/server/toss/client";
 import type { RealtimeTrade } from "@/src/server/toss/realtime";
 import { createPresetStrategyV3 } from "@/src/domain/strategy-v3/catalog";
+import { MonitorStrategySnapshotStore } from "@/src/monitor/strategy-snapshot-store";
 
 const directories: string[] = [];
 
@@ -21,6 +22,301 @@ afterEach(async () => {
 });
 
 describe("MonitorRunner", () => {
+  it("continues from a validated read-only snapshot when the primary repository is unavailable", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "qos-monitor-runner-"));
+    directories.push(directory);
+    const sourceStore = new StrategyStore({ filePath: path.join(directory, "strategies.json") });
+    const stateStore = new MonitorStateStore({ filePath: path.join(directory, "state.json") });
+    const settingsStore = new LocalSettingsStore({
+      filePath: path.join(directory, "settings.json"),
+    });
+    const snapshotStore = new MonitorStrategySnapshotStore({
+      filePath: path.join(directory, "snapshot.json"),
+    });
+    const instrument = {
+      instrumentId: "NASDAQ:AAPL" as const,
+      market: "NASDAQ" as const,
+      symbol: "AAPL",
+      displayName: "Apple",
+      currency: "USD" as const,
+      timezone: "America/New_York" as const,
+      synthetic: false,
+    };
+    await sourceStore.create({
+      name: "Snapshot EMA",
+      description: "last known good",
+      instrument,
+      strategy: createPresetStrategyV3("ema-crossover", instrument.instrumentId, {
+        timeframe: "1d",
+      }),
+      chart: {
+        version: 1,
+        period: "1d",
+        theme: "upbit-light",
+        mainIndicators: ["EMA"],
+        subIndicators: ["VOL"],
+        drawings: [],
+        visibleRange: null,
+      },
+      monitor: { enabled: true, interval: "1d" },
+    });
+    await snapshotStore.write(await sourceStore.list(), new Date("2026-09-13T00:00:00.000Z"));
+    let subscriptions: Array<{ market: string; symbol: string }> = [];
+    const runner = new MonitorRunner({
+      strategyStore: {
+        list: vi.fn().mockRejectedValue(new Error("remote unavailable")),
+      } as unknown as StrategyStore,
+      strategySnapshotStore: snapshotStore,
+      settingsStore,
+      stateStore,
+      tossClient: {
+        getCandles: vi.fn(async () => ({ candles: [], nextBefore: null })),
+      } as unknown as TossClient,
+      telegramClient: { sendMessage: vi.fn() } as unknown as TelegramClient,
+      now: () => new Date("2026-09-13T21:00:00.000Z"),
+      pollMilliseconds: 60_000,
+      createRealtimeConnection: (options) => {
+        subscriptions = options.instruments;
+        return {
+          start: async () => options.onStatus?.("connected"),
+          stop: () => undefined,
+          updateInstruments: () => undefined,
+        };
+      },
+    });
+
+    await runner.start();
+    expect(subscriptions).toEqual([{ market: "NASDAQ", symbol: "AAPL" }]);
+    await expect(stateStore.publicStatus()).resolves.toMatchObject({
+      strategySource: "SNAPSHOT",
+      strategySnapshotAt: "2026-09-13T00:00:00.000Z",
+      enabledStrategies: 1,
+    });
+    await runner.stop();
+  });
+
+  it("delivers primary SELL and inverse BUY as one Telegram paper transition", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "qos-monitor-runner-"));
+    directories.push(directory);
+    const strategyStore = new StrategyStore({ filePath: path.join(directory, "strategies.json") });
+    const settingsStore = new LocalSettingsStore({
+      filePath: path.join(directory, "settings.json"),
+    });
+    const stateStore = new MonitorStateStore({ filePath: path.join(directory, "state.json") });
+    await settingsStore.setTelegram({
+      chatId: "123",
+      displayName: "Tester",
+      username: "qos_bot",
+      connectedAt: "2026-09-13T00:00:00.000Z",
+    });
+    const primary = {
+      instrumentId: "NYSE:SPY" as const,
+      market: "NYSE" as const,
+      symbol: "SPY",
+      displayName: "SPDR S&P 500 ETF",
+      currency: "USD" as const,
+      timezone: "America/New_York" as const,
+      synthetic: false,
+      securityType: "FOREIGN_ETF",
+    };
+    const hedge = {
+      instrumentId: "AMEX:SH" as const,
+      market: "AMEX" as const,
+      symbol: "SH",
+      displayName: "ProShares Short S&P500",
+      currency: "USD" as const,
+      timezone: "America/New_York" as const,
+      synthetic: false,
+      securityType: "FOREIGN_ETF",
+    };
+    const stored = await strategyStore.create({
+      name: "15m VWAP hedge",
+      description: "paper transition",
+      instrument: primary,
+      strategy: createPresetStrategyV3("session-vwap-open-cross", primary.instrumentId, {
+        timeframe: "15m",
+      }),
+      chart: {
+        version: 1,
+        period: "5m",
+        theme: "upbit-light",
+        mainIndicators: ["VWAP"],
+        subIndicators: ["VOL"],
+        drawings: [],
+        visibleRange: null,
+      },
+      monitor: {
+        enabled: true,
+        interval: "15m",
+        targets: [primary],
+        targetControls: [
+          { instrumentId: primary.instrumentId, enabled: true, hedgeInstrument: hedge },
+        ],
+      },
+    });
+    const positionKey = `${stored.id}:${primary.instrumentId}`;
+    await stateStore.recordTransition("seed-delivery", {
+      positionKey,
+      strategyId: stored.id,
+      instrumentId: primary.instrumentId,
+      hedgeInstrumentId: hedge.instrumentId,
+      heldInstrument: primary,
+      leg: "LONG_PRIMARY",
+      signalAt: "2026-09-13T13:45:00.000Z",
+    });
+    const sendMessage = vi.fn<(chatId: string, text: string) => Promise<void>>(
+      async () => undefined,
+    );
+    const runner = new MonitorRunner({
+      strategyStore,
+      settingsStore,
+      stateStore,
+      tossClient: {
+        getCandles: vi.fn(async () => ({
+          candles: [
+            {
+              timestamp: "2026-09-13T14:00:00.000Z",
+              open: 100,
+              high: 101,
+              low: 99,
+              close: 100,
+              volume: 1_000,
+              currency: "USD",
+            },
+          ],
+          nextBefore: null,
+        })),
+      } as unknown as TossClient,
+      telegramClient: { sendMessage } as unknown as TelegramClient,
+      evaluateSignal: (document) => ({
+        instrumentId: document.instrument.instrumentId,
+        side: "SELL",
+        barTimestamp: "2026-09-13T14:00:00.000Z",
+        price: 100,
+        reason: "open 100 < Session VWAP 100.4",
+      }),
+      now: () => new Date("2026-09-13T14:20:00.000Z"),
+      pollMilliseconds: 60_000,
+      createRealtimeConnection: (options) => ({
+        start: async () => options.onStatus?.("connected"),
+        stop: () => undefined,
+        updateInstruments: () => undefined,
+      }),
+    });
+
+    await runner.start();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1]).toContain("SELL SPDR S&P 500 ETF (SPY)");
+    expect(sendMessage.mock.calls[0]?.[1]).toContain("BUY ProShares Short S&P500 (SH)");
+    await expect(stateStore.position(positionKey)).resolves.toMatchObject({
+      leg: "LONG_HEDGE",
+      heldInstrument: hedge,
+    });
+    await runner.stop();
+  });
+
+  it("expands one strategy into multiple target subscriptions and shared runtime telemetry", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "qos-monitor-runner-"));
+    directories.push(directory);
+    const strategyStore = new StrategyStore({ filePath: path.join(directory, "strategies.json") });
+    const settingsStore = new LocalSettingsStore({
+      filePath: path.join(directory, "settings.json"),
+    });
+    const stateStore = new MonitorStateStore({ filePath: path.join(directory, "state.json") });
+    const apple = {
+      instrumentId: "NASDAQ:AAPL" as const,
+      market: "NASDAQ" as const,
+      symbol: "AAPL",
+      displayName: "Apple",
+      currency: "USD" as const,
+      timezone: "America/New_York" as const,
+      synthetic: false,
+      securityType: "STOCK",
+      isinCode: "US0378331005",
+    };
+    const spy = {
+      instrumentId: "NYSE:SPY" as const,
+      market: "NYSE" as const,
+      symbol: "SPY",
+      displayName: "SPDR S&P 500 ETF",
+      currency: "USD" as const,
+      timezone: "America/New_York" as const,
+      synthetic: false,
+      securityType: "FOREIGN_ETF",
+      isinCode: "US78462F1030",
+    };
+    await strategyStore.create({
+      name: "EMA watchlist",
+      description: "one strategy, two targets",
+      instrument: apple,
+      strategy: createPresetStrategyV3("ema-crossover", apple.instrumentId, {
+        timeframe: "1d",
+      }),
+      chart: {
+        version: 1,
+        period: "1d",
+        theme: "upbit-light",
+        mainIndicators: ["EMA"],
+        subIndicators: ["VOL"],
+        drawings: [],
+        visibleRange: null,
+      },
+      monitor: { enabled: true, interval: "1d", targets: [apple, spy] },
+    });
+    const getCandles = vi.fn(async ({ symbol }: { symbol: string }) => ({
+      candles: [
+        {
+          timestamp: "2026-08-29T13:30:00.000Z",
+          open: symbol === "SPY" ? 500 : 200,
+          high: symbol === "SPY" ? 501 : 201,
+          low: symbol === "SPY" ? 499 : 199,
+          close: symbol === "SPY" ? 500 : 200,
+          volume: 1_000,
+          currency: "USD",
+        },
+      ],
+      nextBefore: null,
+    }));
+    let subscriptions: Array<{ market: string; symbol: string }> = [];
+    const runner = new MonitorRunner({
+      strategyStore,
+      settingsStore,
+      stateStore,
+      tossClient: { getCandles } as unknown as TossClient,
+      telegramClient: { sendMessage: vi.fn() } as unknown as TelegramClient,
+      now: () => new Date("2026-09-01T21:00:00.000Z"),
+      pollMilliseconds: 60_000,
+      createRealtimeConnection: (options) => {
+        subscriptions = options.instruments;
+        return {
+          start: async () => options.onStatus?.("connected"),
+          stop: () => undefined,
+          updateInstruments: (instruments) => {
+            subscriptions = instruments;
+          },
+        };
+      },
+    });
+
+    await runner.start();
+
+    expect(subscriptions).toEqual(
+      expect.arrayContaining([
+        { market: "NASDAQ", symbol: "AAPL" },
+        { market: "NYSE", symbol: "SPY" },
+      ]),
+    );
+    expect(getCandles.mock.calls.map(([input]) => input.symbol).toSorted()).toEqual([
+      "AAPL",
+      "SPY",
+    ]);
+    await expect(stateStore.publicStatus()).resolves.toMatchObject({
+      enabledStrategies: 1,
+      trackedTargets: 2,
+    });
+    await runner.stop();
+  });
+
   it("backs off failed provider loads instead of retrying for every realtime trade", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "qos-monitor-runner-"));
     directories.push(directory);

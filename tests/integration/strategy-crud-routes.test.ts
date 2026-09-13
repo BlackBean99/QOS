@@ -151,6 +151,86 @@ describe("strategy CRUD routes", () => {
     expect(await store.list()).toEqual([]);
   });
 
+  it("round-trips multiple stock and ETF monitor targets through PATCH and GET", async () => {
+    const store = await createStore();
+    const created = await store.create(body());
+    const item = createStrategyItemHandlers(store);
+    const targets = [
+      body().instrument,
+      {
+        instrumentId: "NYSE:SPY",
+        market: "NYSE" as const,
+        symbol: "SPY",
+        displayName: "SPDR S&P 500 ETF",
+        currency: "USD" as const,
+        timezone: "America/New_York",
+        synthetic: false,
+        securityType: "FOREIGN_ETF",
+        isinCode: "US78462F1030",
+      },
+    ];
+    const hedgeInstrument = {
+      instrumentId: "KOSPI:252670",
+      market: "KOSPI" as const,
+      symbol: "252670",
+      displayName: "KODEX 200선물인버스2X",
+      currency: "KRW" as const,
+      timezone: "Asia/Seoul" as const,
+      synthetic: false,
+      securityType: "ETF",
+    };
+    const targetControls = [
+      {
+        instrumentId: "KOSPI:005930",
+        enabled: true,
+        hedgeInstrument,
+      },
+      { instrumentId: "NYSE:SPY", enabled: false },
+    ];
+
+    const updated = await item.PATCH(
+      new Request(`http://localhost/api/strategies/${created.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...body(),
+          expectedRevision: created.revision,
+          monitor: { enabled: true, interval: "1d", targets, targetControls },
+        }),
+      }),
+      { params: Promise.resolve({ id: created.id }) },
+    );
+
+    expect(updated.status).toBe(200);
+    await expect(updated.json()).resolves.toMatchObject({
+      strategy: {
+        revision: 2,
+        monitor: {
+          enabled: true,
+          targets: [
+            { instrumentId: "KOSPI:005930", securityType: "STOCK" },
+            { instrumentId: "NYSE:SPY", securityType: "FOREIGN_ETF" },
+          ],
+          targetControls: [
+            {
+              instrumentId: "KOSPI:005930",
+              enabled: true,
+              hedgeInstrument: { instrumentId: "KOSPI:252670", securityType: "ETF" },
+            },
+            { instrumentId: "NYSE:SPY", enabled: false },
+          ],
+        },
+      },
+    });
+
+    const read = await item.GET(new Request("http://localhost"), {
+      params: Promise.resolve({ id: created.id }),
+    });
+    await expect(read.json()).resolves.toMatchObject({
+      strategy: { monitor: { targets, targetControls } },
+    });
+  });
+
   it("returns 409 for stale revisions", async () => {
     const store = await createStore();
     const created = await store.create(body());

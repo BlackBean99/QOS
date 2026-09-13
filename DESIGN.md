@@ -51,7 +51,7 @@ QOS는 설명형 금융 랜딩이 아니라 바로 조작하는 로컬 리서치
 - 비기본 LLM 파라미터는 모든 실행값을 포함한 고유 이름과 선택 청산선으로 표시한다.
   화면의 run 개수는 Strategy JSON의 실제 exit 개수를 따른다.
 - Strategy v3는 검색형 catalog→Preset→Customize→Advanced DSL의 progressive disclosure를
-  사용한다. Catalog는 42 Entry·8 Filter·20 Exit의 역할/category/데이터/목적/parameter를
+  사용한다. Catalog는 43 Entry·8 Filter·21 Exit의 역할/category/데이터/목적/parameter를
   표시하며 선택한 preset은 별도 엔진이 아니라 editable Rule Group을 추가한다.
 - Entry와 Filter는 AND/OR/NOT 중첩, operand output/timeframe/offset/숫자 parameter를 화면에서
   편집하고 64개 중 현재 개수를 계속 표시한다. Exit는 priority·unit·time mode·partial trigger를,
@@ -65,12 +65,18 @@ QOS는 설명형 금융 랜딩이 아니라 바로 조작하는 로컬 리서치
   `저장+tracking ON`은 분리해 사용자가 편집만 할지 장기 알림까지 켤지 선택한다.
 - 자연어 연구는 `문장→Strategy JSON 후보→사용자 확인→백테스트` 순서를 건너뛸 수 없다.
   LLM 연결 여부와 reference fallback을 같은 기능처럼 위장하지 않는다.
+- 종목 검색은 주식에 한정하지 않고 provider가 반환한 ETF·ETN·REIT 등의 security type과
+  HIT/REFRESHED/STALE catalog 상태·기준 시각을 표시한다. 외부 API 갱신은 반복 검색과 분리한
+  명시적 action이어야 한다.
 - 검색 결과 없음, 종목 변경, 실행 중 잠금과 오래된 결과 폐기가 화면 상태로 드러나야 한다.
 - 시장이나 검색어가 바뀌면 진행 중인 이전 조회 결과를 폐기한다. 검색 실패는 공급자 메시지와
   시장·티커 확인 또는 TOSS 서버·허용 IP 확인 행동을 함께 보여준다.
 - 전략 라이브러리는 목록→read-only JSON view→불러오기/backtest/감시/수정/삭제 순서를
   유지하고 import/export action을 명시적으로 구분한다. 검색 전 recovery mode와 종목 선택 후
   authoring mode를 섞지 않는다.
+- 저장 전략 detail의 다종목 감시는 전략→대상 검색→현재 대상 목록→저장/ON 순서로 제공한다.
+  초깃값은 대표 종목이고 최대 50개까지 종목명·티커·시장·security type을 함께 표시하며,
+  실제 주문 없이 target별 paper BUY/SELL만 보낸다는 경계를 action 가까이에 둔다.
 - Telegram과 monitor는 설정 완료, 연결, running/error, 마지막 heartbeat, provider request와
   shared cache hit를 텍스트로 표시하며 색만으로 동작 여부를 전달하지 않는다. 오류에는 safe
   code와 managed local deployment 상태/재시작 명령을 제공한다.

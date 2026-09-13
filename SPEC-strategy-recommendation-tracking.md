@@ -60,7 +60,7 @@ envelope으로 422를 반환한다.
 
 ## Recommendation evaluation
 
-`ENTRY_PRESETS_V3` 42개 각각을 `createPresetStrategyV3`로 생성한다. 각 후보는 동일한 baseline
+`ENTRY_PRESETS_V3` 43개 각각을 `createPresetStrategyV3`로 생성한다. 각 후보는 동일한 baseline
 ATR stop + 2R exit, next-bar-open fill, commission/slippage/spread를 사용하며 이름 switch나 별도
 backtest engine을 만들지 않는다. 거래가 없는 후보도 분석 수에는 포함하지만 추천 순위에서는 거래가
 있는 후보를 우선한다. 후보가 모두 거래 0회면 명확한 no-recommendation 결과를 반환한다.
@@ -96,7 +96,7 @@ label과 도움말을 제공하고 loading/error/result를 `aria-live`로 알린
 
 ## Acceptance criteria
 
-1. 전체 42 Entry preset이 동일 dataset에서 평가되고 결정론적으로 총수익률 1위를 추천한다.
+1. 전체 43 Entry preset이 동일 dataset에서 평가되고 결정론적으로 총수익률 1위를 추천한다.
 2. default/custom window가 validation, TOSS load, engine 결과와 UI에 일관되게 적용된다.
 3. 추천 전략을 builder에 적용하고 저장+tracking ON 할 수 있다.
 4. 동일 종목/timeframe의 복수 tracking 전략은 한 번의 dataset fetch를 공유한다.

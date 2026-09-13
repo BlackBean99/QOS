@@ -12,7 +12,7 @@ local JSON에 저장한다. 인증, public hosting과 주문 엔진은 없다.
 ```text
 app/                    Next.js page, styles와 API routes
 src/components/         종목/전략/KLineChart/라이브러리/Telegram UI
-src/domain/strategy-v3/ strict Rule Chain, 70개 preset catalog와 allowlisted compiler
+src/domain/strategy-v3/ strict Rule Chain, 72개 preset catalog와 allowlisted compiler
 src/domain/strategy-runtime/ pure indicator/timeframe registry, evaluator와 Decision Trace
 src/domain/backtest-v3/ position/exit/risk/execution, trade ledger와 metrics/comparison
 src/server/toss/        OAuth, stock master, candle REST와 realtime WebSocket
@@ -21,7 +21,7 @@ src/monitor/            completed-bar evaluator, runtime state와 delivery runne
 scripts/live-monitor.ts 별도 monitor process entrypoint
 scripts/local-deploy.ts loopback production lifecycle과 contract health check
 supabase/               CLI config와 additive Postgres migrations
-.qos/data/              gitignored local fallback/settings/monitor JSON
+.qos/data/              gitignored local fallback/instrument catalog/settings/monitor JSON
 .qos/runtime/           gitignored local production state/lock/log
 tests/                  Vitest unit/integration
 e2e/                    Playwright 360/390/768/1440와 axe
@@ -31,12 +31,12 @@ e2e/                    Playwright 360/390/768/1440와 axe
 
 ```text
 Browser
-  -> /api/instruments -> TOSS daily-cached domestic/US stock master
+  -> /api/instruments -> persistent 24h catalog -> TOSS all-active domestic/US stock master
   -> /api/market/candles -> TOSS adjusted 1d/1m -> optional local 5m aggregation
   -> /api/market/stream -> TOSS trade WebSocket -> SSE -> current display candle
   -> strategy compiler/builder -> strict Strategy v1/v2/v3
   -> /api/strategy-engine/{catalog,compile,backtests} -> actual TOSS candles -> paper result/comparison
-  -> /api/strategy-recommendations -> one dataset -> all 42 Entry runs -> historical ranking
+  -> /api/strategy-recommendations -> one dataset -> all 43 Entry runs -> historical ranking
   -> /api/strategies CRUD/import/export -> Supabase qos_strategies
   -> /api/strategies/:id/backtests -> TOSS paper backtest -> qos_backtest_runs snapshot
   -> /api/backtest-runs/:id -> full history read/delete
@@ -44,18 +44,21 @@ Browser
 
 npm run monitor (development) / managed monitor (local release)
   -> acquire repository-scoped singleton process lease
-  -> reads enabled stored strategies
+  -> reads enabled stored strategies; on failure reads monitor-only last-known-good snapshot
+  -> expands optional monitor.targets and filters per-target enabled controls
   -> refreshes desired state every 60s and subscribes TOSS trades
   -> shares instrument+timeframe candles and repairs completed gaps on session-aligned windows
   -> evaluates completed 1m~1w bars as paper BUY/SELL
-  -> dedupe key(strategy id, revision, side, bar) in monitor-state.json
-  -> Telegram plain-text delivery
+  -> plans WAITING/LONG_PRIMARY/LONG_HEDGE paper transitions for explicit inverse targets
+  -> dedupe key(strategy id, revision, target instrument, side, bar) in monitor-state.json
+  -> stable position key(strategy id, target) + held instrument snapshot across revisions
+  -> Telegram plain-text delivery, then atomic sent+paper-leg state write
 
 npm run release:local
   -> stop only the PID owned by this repository's saved deployment state
   -> format/lint/typecheck/Vitest/build/audit and Chromium E2E
   -> start Next production on 127.0.0.1 and a repository-local monitor worker
-  -> verify home + complete 42/8/20 catalog + compiler + fresh non-error monitor heartbeat
+  -> verify home + complete 43/8/21 catalog + compiler + fresh non-error monitor heartbeat
   -> refuse a second live monitor lease owner
   -> atomically record both PID/start times/Git commit/dirty state in .qos/runtime
 ```
@@ -69,12 +72,17 @@ repository root, PID 시작 시각, process cwd와 server/worker command가 모�
 
 - OAuth credential과 Telegram token은 environment에서만 읽는다. OAuth token은 timeout과
   최대 2회 retry/bounded backoff를 갖는 single-flight cache다.
-- 종목 master는 시장별 하루 cache 후 로컬에서 이름·ticker 순위를 계산한다. 빈 결과나
-  provider 오류는 fixture로 대체하지 않는다.
+- 종목 master는 `market + ACTIVE`만 요청해 TOSS가 반환하는 주식·ETF·ETN·REIT·우선주 등
+  전체 security type을 보존한다. quota-sensitive endpoint 내부 retry는 끄고 시장 refresh를 1.1초
+  간격으로 single-flight 직렬화하며 validated row를
+  `.qos/data/instrument-catalog-v1.json`에 atomic `0600`으로 저장한다. 24시간 fresh, transient/auth
+  실패 시 fetchedAt부터 최대 7일 STALE이며 HIT/REFRESHED/STALE, MEMORY/DISK/PROVIDER 출처와 기준
+  시각을 API/UI에 표시한다.
+  빈 결과나 provider 오류는 fixture로 대체하지 않는다.
 - TOSS candle은 최대 200개 단위로 paging/dedupe해 오래된 순으로 정규화한다. 5분봉은 1분봉
   OHLCV를 로컬 집계한다.
 - backtest 기간은 종목 timezone의 inclusive date로 resolve하며 자동 기간은 분봉 30일/일봉 2년/
-  주봉 5년이다. recommendation은 한 dataset으로 42 Entry를 실행하고 bounded TTL/in-flight cache를
+  주봉 5년이다. recommendation은 한 dataset으로 43 Entry를 실행하고 bounded TTL/in-flight cache를
   사용한다. 실제 candle 기간은 요청 기간과 별도로 반환한다.
 - realtime `trade:kr/us`는 full-replace subscription, ping과 reconnect를 처리한다. sequence가
   없으므로 REST candle이 authoritative하며 stream volume 합계를 사용하지 않는다.
@@ -97,7 +105,13 @@ repository root, PID 시작 시각, process cwd와 server/worker command가 모�
   시크릿·chat id·delivery state를 제외하고 remote bulk replace는 optimistic concurrency를
   우회하므로 지원하지 않는다.
 - 전략 mutation은 Next server의 repository boundary가 소유하고 monitor runtime은 같은
-  repository에서 전략을 읽으며 별도 `monitor-state.json`을 소유한다.
+  repository에서 전략을 읽으며 별도 `monitor-state.json`과 read-only
+  `monitor-strategies-v1.json` snapshot을 소유한다. snapshot fallback은 monitor read에만 쓰고 CRUD
+  write에는 사용하지 않는다.
+- `monitor.targets`는 최대 50개 unique instrument snapshot의 optional additive field다. 없거나
+  비어 있으면 대표 종목 하나로 호환 실행한다. runtime은 target별로 market/instrumentId만
+  materialize하고 같은 target+timeframe dataset 및 subscription을 공유한다. optional
+  `targetControls`는 target별 enabled와 명시적 hedge snapshot을 저장한다.
 
 ## Quant and chart boundaries
 
@@ -142,4 +156,6 @@ repository root, PID 시작 시각, process cwd와 server/worker command가 모�
 단일 앱/전략 계약/종목 선택/OpenAI compiler는 ADR-0001~~0004, TOSS+monitor/local JSON/
 KLineChart는 ADR-0005~~0007, Supabase primary persistence는 ADR-0008, Strategy v3 DSL과
 conservative execution은 ADR-0009를 따른다.
-Verified loopback lifecycle은 ADR-0010, 추천·기간·monitor cadence는 ADR-0011을 따른다.
+Verified loopback lifecycle은 ADR-0010, 추천·기간·monitor cadence는 ADR-0011, persistent
+instrument catalog와 multi-target monitoring은 ADR-0012를 따른다.
+Monitor snapshot fallback, 15분 VWAP open 교차와 paper hedge state는 ADR-0013을 따른다.

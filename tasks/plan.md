@@ -1,3 +1,16 @@
+# Active Plan: 15-minute VWAP and inverse paper hedge monitoring
+
+1. 15분봉 open/Session VWAP paired Rule Chain과 snapshot/target/hedge 계약을 실패 테스트로 고정한다.
+2. target별 ON/OFF, read-only monitor snapshot과 persistent paper leg를 runner에 연결한다.
+3. primary SELL↔inverse BUY 전환 Telegram과 Rule value 근거를 제공한다.
+4. 저장 전략 detail에서 inverse 검색과 현재 paper state를 keyboard/mobile로 관리한다.
+5. catalog quota/cache 회귀를 닫고 전체 gate/review/docs/Git push와 local release를 완료한다.
+
+상세 명세는 `SPEC-vwap-hedge-monitor.md`, 진행과 rollback은
+`.agent/execplans/0011-vwap-hedge-monitor.md`가 기준이다.
+
+---
+
 # Completed Plan: Strategy recommendation and efficient tracking
 
 1. timeframe별 default/custom backtest 기간 계약을 API와 engine에 연결한다.

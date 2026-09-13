@@ -66,11 +66,13 @@ release 증거를 대신하지 않는다. `deploy:local:stop`은 저장소/PID �
 - 모든 사용자 흐름: 자동 접근성 검사와 수동 키보드 검증
 - LLM compiler: local multi-entry composition, missing key/provider failure/invalid output/strict valid
   output, allowlisted preset intent, prompt size와 `store: false`
-- recommendation/window: 42 Entry 평가 수, deterministic return/MDD/Sharpe tie-break, default/custom
+- recommendation/window: 현재 전체 Entry 평가 수, deterministic return/MDD/Sharpe tie-break, default/custom
   timezone 기간, 실제 candle 범위, TTL/in-flight cache와 invalid intraday window
 - monitor cost: 같은 instrument/timeframe 복수 전략의 provider call count, after-session no-refetch,
   desired-state refresh cadence, provider failure backoff, request/cache telemetry, singleton lease와
   server+worker lifecycle
+- monitor transition: target별 ON/OFF, legacy v1/v2/v3, 15분 open/Session VWAP no-look-ahead,
+  primary↔inverse paper leg, Telegram 성공 뒤 atomic state, repository snapshot fallback/source
 
 ## Quant correctness gate
 

@@ -184,9 +184,10 @@ export class TossClient {
     this.#token = null;
   }
 
-  async #get(path: string): Promise<unknown> {
+  async #get(path: string, options: { maxAttempts?: number } = {}): Promise<unknown> {
+    const maxAttempts = Math.max(1, Math.min(3, options.maxAttempts ?? 3));
     let lastError: TossProviderError | null = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         const token = await this.getAccessToken();
         const response = await this.#fetchWithTimeout(`${this.#baseUrl}${path}`, {
@@ -197,13 +198,14 @@ export class TossClient {
 
         const code = providerCode(response.status);
         const error = new TossProviderError(code, safeMessage(code), response.status);
-        if (response.status === 401 && attempt === 0) {
+        if (response.status === 401 && attempt === 0 && maxAttempts > 1) {
           this.invalidateToken();
           lastError = error;
           continue;
         }
-        if ((response.status === 429 || response.status >= 500) && attempt < 2) {
-          const retryAfter = Number(response.headers.get("retry-after"));
+        if ((response.status === 429 || response.status >= 500) && attempt < maxAttempts - 1) {
+          const retryAfterHeader = response.headers.get("retry-after");
+          const retryAfter = retryAfterHeader === null ? Number.NaN : Number(retryAfterHeader);
           const delay = Number.isFinite(retryAfter)
             ? Math.min(MAX_RETRY_DELAY_MS, Math.max(0, retryAfter * 1_000))
             : Math.min(MAX_RETRY_DELAY_MS, 250 * 2 ** attempt);
@@ -219,7 +221,10 @@ export class TossClient {
             : new TossProviderError("unavailable", safeMessage("unavailable"), undefined, {
                 cause: error,
               });
-        if ((normalized.code === "timeout" || normalized.code === "unavailable") && attempt < 2) {
+        if (
+          (normalized.code === "timeout" || normalized.code === "unavailable") &&
+          attempt < maxAttempts - 1
+        ) {
           await this.#sleep(Math.min(MAX_RETRY_DELAY_MS, 250 * 2 ** attempt));
           lastError = normalized;
           continue;
@@ -234,11 +239,9 @@ export class TossClient {
     const query = new URLSearchParams({
       market,
       status: "ACTIVE",
-      securityType: "STOCK",
-      commonShare: "true",
     });
     const parsed = ListedStocksEnvelopeSchema.safeParse(
-      await this.#get(`/api/v1/stocks/all?${query.toString()}`),
+      await this.#get(`/api/v1/stocks/all?${query.toString()}`, { maxAttempts: 1 }),
     );
     if (!parsed.success) {
       throw new TossProviderError("invalid_response", safeMessage("invalid_response"));

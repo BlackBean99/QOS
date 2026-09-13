@@ -124,7 +124,7 @@ export function StrategyRecommendationPanel({
       await Promise.resolve();
       if (signal?.aborted) return;
       setBusy(true);
-      setStatus("42개 Entry 후보를 동일한 데이터·비용으로 평가하고 있습니다.");
+      setStatus("전체 Entry 후보를 동일한 데이터·비용으로 평가하고 있습니다.");
       try {
         const response = await fetch("/api/strategy-recommendations", {
           method: "POST",
@@ -202,7 +202,7 @@ export function StrategyRecommendationPanel({
           <h2 id="strategy-recommendation-title">과거 수익률 추천</h2>
         </div>
         <p>
-          두세 가지 전략만 고르지 않습니다. 현재 42개 Entry preset 전체를 같은 기간, baseline Exit와
+          두세 가지 전략만 고르지 않습니다. 현재 Entry preset 전체를 같은 기간, baseline Exit와
           비용으로 실행해 과거 총수익률 순으로 비교합니다.
         </p>
       </header>

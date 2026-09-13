@@ -1,4 +1,5 @@
 import type { StoredStrategy } from "@/src/domain/stored-strategy";
+import { isKoreanMarket } from "@/src/domain/instruments";
 import { filterCompletedBacktestCandles } from "@/src/domain/backtest-window";
 import type { IntradayFixture } from "@/src/fixtures/intraday";
 import type { Candle, MarketFixture } from "@/src/fixtures/markets";
@@ -15,18 +16,35 @@ import {
   type RealtimeStatus,
   type RealtimeTrade,
 } from "@/src/server/toss/realtime";
-import { evaluateCompletedBarSignal } from "./signal-evaluator";
+import { evaluateCompletedBarSignal, type DetectedSignal } from "./signal-evaluator";
+import { planPaperTransition } from "./paper-position";
 import { getMonitorStateStore, type MonitorStateStore, type MonitorTelemetry } from "./state-store";
+import {
+  getMonitorStrategySnapshotStore,
+  type MonitorStrategySnapshotStore,
+} from "./strategy-snapshot-store";
+import {
+  expandMonitorTargets,
+  monitorDeliveryKey,
+  monitorEvaluationKey,
+  monitorHedgeInstrument,
+  monitorPositionKey,
+} from "./targets";
 
 interface MonitorRunnerOptions {
   strategyStore?: StrategyRepository;
   settingsStore?: LocalSettingsStore;
   stateStore?: MonitorStateStore;
+  strategySnapshotStore?: MonitorStrategySnapshotStore;
   tossClient?: TossClient;
   telegramClient?: TelegramClient;
   pollMilliseconds?: number;
   strategyRefreshMilliseconds?: number;
   now?: () => Date;
+  evaluateSignal?: (
+    document: StoredStrategy,
+    dataset: MarketFixture | IntradayFixture,
+  ) => DetectedSignal | null;
   createRealtimeConnection?: (options: RealtimeConnectionOptions) => RealtimeConnectionLike;
 }
 
@@ -142,11 +160,13 @@ export class MonitorRunner {
   readonly #strategyStore: StrategyRepository;
   readonly #settingsStore: LocalSettingsStore;
   readonly #stateStore: MonitorStateStore;
+  readonly #strategySnapshotStore: MonitorStrategySnapshotStore | null;
   readonly #tossClient: TossClient;
   readonly #telegramClient: TelegramClient;
   readonly #pollMilliseconds: number;
   readonly #strategyRefreshMilliseconds: number;
   readonly #now: () => Date;
+  readonly #evaluateSignal: NonNullable<MonitorRunnerOptions["evaluateSignal"]>;
   readonly #createRealtimeConnection: (
     options: RealtimeConnectionOptions,
   ) => RealtimeConnectionLike;
@@ -157,6 +177,7 @@ export class MonitorRunner {
   readonly #datasetLoads = new Map<string, Promise<MarketFixture | IntradayFixture>>();
   readonly #datasetFailures = new Map<string, { attempts: number; retryAt: number }>();
   #strategies: StoredStrategy[] = [];
+  #enabledStrategyCount = 0;
   #connection: RealtimeConnectionLike | null = null;
   #subscriptionFingerprint = "";
   #timer: ReturnType<typeof setInterval> | null = null;
@@ -167,16 +188,22 @@ export class MonitorRunner {
   #datasetCacheHits = 0;
   #lastProviderSyncAt: string | null = null;
   #lastStrategyRefreshAt: string | null = null;
+  #strategySource: "PRIMARY" | "SNAPSHOT" = "PRIMARY";
+  #strategySnapshotAt: string | null = null;
 
   constructor(options: MonitorRunnerOptions = {}) {
     this.#strategyStore = options.strategyStore ?? getStrategyRepository();
     this.#settingsStore = options.settingsStore ?? getLocalSettingsStore();
     this.#stateStore = options.stateStore ?? getMonitorStateStore();
+    this.#strategySnapshotStore =
+      options.strategySnapshotStore ??
+      (options.strategyStore === undefined ? getMonitorStrategySnapshotStore() : null);
     this.#tossClient = options.tossClient ?? getTossClient();
     this.#telegramClient = options.telegramClient ?? getTelegramClient();
     this.#pollMilliseconds = options.pollMilliseconds ?? 15_000;
     this.#strategyRefreshMilliseconds = options.strategyRefreshMilliseconds ?? 60_000;
     this.#now = options.now ?? (() => new Date());
+    this.#evaluateSignal = options.evaluateSignal ?? evaluateCompletedBarSignal;
     this.#createRealtimeConnection =
       options.createRealtimeConnection ??
       ((connectionOptions) => new TossRealtimeConnection(connectionOptions));
@@ -195,8 +222,11 @@ export class MonitorRunner {
     return {
       providerRequests: this.#providerRequests,
       datasetCacheHits: this.#datasetCacheHits,
+      trackedTargets: this.#strategies.length,
       lastProviderSyncAt: this.#lastProviderSyncAt,
       lastStrategyRefreshAt: this.#lastStrategyRefreshAt,
+      strategySource: this.#strategySource,
+      strategySnapshotAt: this.#strategySnapshotAt,
     };
   }
 
@@ -209,9 +239,33 @@ export class MonitorRunner {
       return;
     }
     const startedAt = performance.now();
-    this.#strategies = (await this.#strategyStore.list()).filter(
-      (strategy) => strategy.monitor.enabled,
-    );
+    let allStrategies: StoredStrategy[];
+    try {
+      allStrategies = await this.#strategyStore.list();
+      this.#strategySource = "PRIMARY";
+      this.#strategySnapshotAt = this.#now().toISOString();
+      try {
+        await this.#strategySnapshotStore?.write(allStrategies, this.#now());
+      } catch (error) {
+        logServerEvent("warn", "monitor.strategy_snapshot_write_failed", {
+          code: safeErrorCode(error),
+        });
+      }
+    } catch (error) {
+      const snapshot = await this.#strategySnapshotStore?.read();
+      if (!snapshot) throw error;
+      allStrategies = snapshot.strategies;
+      this.#strategySource = "SNAPSHOT";
+      this.#strategySnapshotAt = snapshot.savedAt;
+      logServerEvent("warn", "monitor.strategy_snapshot_fallback", {
+        code: safeErrorCode(error),
+        snapshotAt: snapshot.savedAt,
+        strategies: snapshot.strategies.length,
+      });
+    }
+    const storedStrategies = allStrategies.filter((strategy) => strategy.monitor.enabled);
+    this.#enabledStrategyCount = storedStrategies.length;
+    this.#strategies = storedStrategies.flatMap(expandMonitorTargets);
     this.#lastStrategyRefreshEpoch = epoch;
     this.#lastStrategyRefreshAt = this.#now().toISOString();
     const activeKeys = new Set(this.#strategies.map(datasetKey));
@@ -223,9 +277,12 @@ export class MonitorRunner {
       }
     }
     logServerEvent("info", "monitor.strategy_refresh", {
-      enabledStrategies: this.#strategies.length,
+      enabledStrategies: this.#enabledStrategyCount,
+      trackedTargets: this.#strategies.length,
       datasetKeys: activeKeys.size,
       durationMs: Math.round(performance.now() - startedAt),
+      strategySource: this.#strategySource,
+      strategySnapshotAt: this.#strategySnapshotAt,
     });
   }
 
@@ -244,10 +301,15 @@ export class MonitorRunner {
             : this.#realtimeStatus === "reconnecting" || this.#realtimeStatus === "disconnected"
               ? "reconnecting"
               : "connecting";
-      await this.#stateStore.heartbeat(status, this.#strategies.length, null, this.#telemetry());
+      await this.#stateStore.heartbeat(status, this.#enabledStrategyCount, null, this.#telemetry());
     } catch (error) {
       const code = safeErrorCode(error);
-      await this.#stateStore.heartbeat("error", this.#strategies.length, code, this.#telemetry());
+      await this.#stateStore.heartbeat(
+        "error",
+        this.#enabledStrategyCount,
+        code,
+        this.#telemetry(),
+      );
       logServerEvent("error", "monitor.tick_failed", { code });
     } finally {
       this.#ticking = false;
@@ -255,10 +317,13 @@ export class MonitorRunner {
   }
 
   async #syncSubscriptions(): Promise<void> {
-    const instruments = this.#strategies.map((strategy) => ({
-      market: strategy.instrument.market,
-      symbol: strategy.instrument.symbol,
-    }));
+    const instruments = this.#strategies.flatMap((strategy) => {
+      const hedge = monitorHedgeInstrument(strategy);
+      return [
+        { market: strategy.instrument.market, symbol: strategy.instrument.symbol },
+        ...(hedge ? [{ market: hedge.market, symbol: hedge.symbol }] : []),
+      ];
+    });
     const fingerprint = [
       ...new Set(instruments.map((instrument) => `${instrument.market}:${instrument.symbol}`)),
     ]
@@ -295,7 +360,9 @@ export class MonitorRunner {
 
   async #onTrade(trade: RealtimeTrade): Promise<void> {
     for (const strategy of this.#strategies.filter(
-      (candidate) => candidate.instrument.symbol === trade.symbol,
+      (candidate) =>
+        candidate.instrument.symbol === trade.symbol &&
+        (isKoreanMarket(candidate.instrument.market) ? "kr" : "us") === trade.marketRegion,
     )) {
       try {
         await this.#evaluate(strategy);
@@ -381,14 +448,14 @@ export class MonitorRunner {
   }
 
   async #evaluate(document: StoredStrategy): Promise<void> {
-    const evaluationKey = `${document.id}:${document.revision}`;
+    const evaluationKey = monitorEvaluationKey(document);
     if (this.#evaluationInFlight.has(evaluationKey)) return;
     this.#evaluationInFlight.add(evaluationKey);
     try {
       const dataset = completedDataset(await this.#loadDataset(document), document, this.#now());
       const latest = dataset.candles.at(-1);
       if (!latest || this.#lastEvaluatedBar.get(evaluationKey) === latest.date) return;
-      const signal = evaluateCompletedBarSignal(document, dataset);
+      const signal = this.#evaluateSignal(document, dataset);
       if (!signal) {
         this.#lastEvaluatedBar.set(evaluationKey, latest.date);
         return;
@@ -403,7 +470,7 @@ export class MonitorRunner {
         this.#lastEvaluatedBar.set(evaluationKey, latest.date);
         return;
       }
-      const key = `${document.id}:${document.revision}:${signal.side}:${signal.barTimestamp}`;
+      const key = monitorDeliveryKey(document, signal.side, signal.barTimestamp);
       if (!(await this.#stateStore.shouldDeliver(key))) {
         this.#lastEvaluatedBar.set(evaluationKey, latest.date);
         return;
@@ -415,24 +482,74 @@ export class MonitorRunner {
         this.#lastEvaluatedBar.set(evaluationKey, latest.date);
         return;
       }
+      const hedge = monitorHedgeInstrument(document);
+      const positionKey = monitorPositionKey(document);
+      const currentPosition = await this.#stateStore.position(positionKey);
+      const heldInstrument =
+        currentPosition?.heldInstrument ??
+        (currentPosition?.leg === "LONG_PRIMARY"
+          ? document.instrument
+          : currentPosition?.leg === "LONG_HEDGE" &&
+              currentPosition.hedgeInstrumentId === hedge?.instrumentId
+            ? hedge
+            : undefined);
+      const transition = planPaperTransition(
+        currentPosition?.leg ?? "WAITING",
+        signal.side,
+        document.instrument,
+        hedge,
+        heldInstrument,
+      );
+      if (transition.actions.length === 0) {
+        await this.#stateStore.recordDelivery(key, "sent");
+        this.#lastEvaluatedBar.set(evaluationKey, latest.date);
+        logServerEvent("info", "monitor.signal_transition_suppressed", {
+          strategyId: document.id,
+          instrumentId: signal.instrumentId,
+          side: signal.side,
+          leg: transition.nextLeg,
+        });
+        return;
+      }
+      const actionLines = transition.actions.map(
+        (action) =>
+          `${action.side} ${action.instrument.displayName} (${action.instrument.symbol}) · ${action.instrument.market}`,
+      );
       const message = [
-        `QOS ${signal.side} 신호`,
+        `QOS ${signal.side} 신호 · PAPER ${transition.nextLeg}`,
         `${document.name}`,
         `${document.instrument.displayName} (${document.instrument.symbol}) · ${document.instrument.market}`,
         `가격: ${signal.price.toLocaleString("ko-KR")} ${document.instrument.currency}`,
         `완성 봉: ${signal.barTimestamp} · ${document.strategy.timeframe}`,
         `근거: ${signal.reason}`,
+        "Paper actions:",
+        ...actionLines,
         "Paper signal only · 실제 주문 없음",
       ].join("\n");
       try {
         await this.#telegramClient.sendMessage(settings.telegram.chatId, message);
-        await this.#stateStore.recordDelivery(key, "sent");
+        await this.#stateStore.recordTransition(key, {
+          positionKey,
+          strategyId: document.id,
+          instrumentId: document.instrument.instrumentId,
+          hedgeInstrumentId: hedge?.instrumentId ?? null,
+          heldInstrument:
+            transition.nextLeg === "LONG_PRIMARY"
+              ? document.instrument
+              : transition.nextLeg === "LONG_HEDGE"
+                ? (hedge ?? null)
+                : null,
+          leg: transition.nextLeg,
+          signalAt: signal.barTimestamp,
+        });
         this.#lastEvaluatedBar.set(evaluationKey, latest.date);
         logServerEvent("info", "monitor.signal_delivered", {
           strategyId: document.id,
           instrumentId: signal.instrumentId,
           side: signal.side,
           barTimestamp: signal.barTimestamp,
+          paperLeg: transition.nextLeg,
+          paperActions: transition.actions.length,
         });
       } catch (error) {
         const code = safeErrorCode(error);
@@ -458,6 +575,8 @@ export class MonitorRunner {
     this.#timer = null;
     this.#connection?.stop();
     this.#connection = null;
+    this.#strategies = [];
+    this.#enabledStrategyCount = 0;
     await this.#stateStore.heartbeat("stopped", 0, null, this.#telemetry());
     logServerEvent("info", "monitor.stopped");
   }

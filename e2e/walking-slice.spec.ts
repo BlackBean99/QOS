@@ -15,6 +15,31 @@ const instrument = {
   isinCode: "US67066G1040",
 } as const;
 
+const trackingEtf = {
+  instrumentId: "NYSE:SPY",
+  market: "NYSE",
+  symbol: "SPY",
+  displayName: "SPDR S&P 500 ETF",
+  currency: "USD",
+  timezone: "America/New_York",
+  synthetic: false,
+  aliases: [],
+  securityType: "FOREIGN_ETF",
+  isinCode: "US78462F1030",
+} as const;
+
+const inverseEtf = {
+  instrumentId: "AMEX:SH",
+  market: "AMEX",
+  symbol: "SH",
+  displayName: "ProShares Short S&P500",
+  currency: "USD",
+  timezone: "America/New_York",
+  synthetic: false,
+  aliases: [],
+  securityType: "FOREIGN_ETF",
+} as const;
+
 function candles(interval: string) {
   const count = interval === "1d" ? 100 : 180;
   const span = interval === "1d" ? 86_400_000 : 60_000;
@@ -281,8 +306,21 @@ async function installMocks(page: Page) {
     const query = url.searchParams.get("query")?.toLocaleLowerCase("ko-KR") ?? "";
     await route.fulfill({
       json: {
-        instruments: query.includes("없") ? [] : [instrument],
+        instruments: query.includes("없")
+          ? []
+          : query === "sh" || query.includes("inverse")
+            ? [inverseEtf]
+            : query.includes("spy") || query.includes("etf")
+              ? [trackingEtf]
+              : [instrument],
         source: "TOSS OpenAPI",
+        cache: {
+          status: url.searchParams.get("refresh") === "true" ? "REFRESHED" : "HIT",
+          origin: url.searchParams.get("refresh") === "true" ? "PROVIDER" : "DISK",
+          fetchedAt: "2026-09-01T00:00:00.000Z",
+          expiresAt: "2026-09-02T00:00:00.000Z",
+          markets: url.searchParams.get("region") === "KR" ? 3 : 4,
+        },
         requestId: "e2e",
       },
     });
@@ -323,6 +361,9 @@ async function installMocks(page: Page) {
         deliveredSignals: 2,
         failedSignals: 0,
         lastErrorCode: null,
+        strategySource: "PRIMARY",
+        strategySnapshotAt: new Date().toISOString(),
+        positions: [],
       },
     }),
   );
@@ -371,8 +412,8 @@ async function installMocks(page: Page) {
     await route.fulfill({
       json: {
         methodology: {
-          catalogVersion: "strategy-v3-entry-42",
-          candidatesEvaluated: 42,
+          catalogVersion: "strategy-v3-entry-43",
+          candidatesEvaluated: 43,
           ranking: "TOTAL_RETURN_DESC",
           baselineExit: "ATR 2x stop + 2R target",
           execution: "bar close signal → next bar open",
@@ -991,7 +1032,7 @@ test("builds a multi-family Strategy v3 rule chain and explains its paper result
 
   const builder = page.locator("#strategy-builder");
   await expect(builder.getByRole("heading", { name: /아이디어를 규칙으로/ })).toBeVisible();
-  await expect(builder.getByText("42 Entry · 8 Filter · 20 Exit")).toBeVisible();
+  await expect(builder.getByText("43 Entry · 8 Filter · 21 Exit")).toBeVisible();
 
   const search = builder.getByRole("searchbox", { name: "전략 검색" });
   await search.fill("OBV");
@@ -1047,6 +1088,25 @@ test("builds a multi-family Strategy v3 rule chain and explains its paper result
   expect(overflow).toEqual([]);
 });
 
+test("starts the completed 15m open and Session VWAP cross preset", async ({ page }) => {
+  await page.goto("/");
+  await selectInstrument(page);
+  await startV3Preset(page, "15m open", "15m Open × Session VWAP Cross");
+
+  const builder = page.locator("#strategy-builder");
+  await expect(builder.locator(".engine-sticky-bar select").first()).toHaveValue("15m");
+  await expect(builder.getByRole("textbox", { name: "Rule label" }).first()).toHaveValue(
+    "15m open crosses Session VWAP",
+  );
+  await expect(builder.getByRole("textbox", { name: "Rule label" }).nth(1)).toHaveValue(
+    "15m open crosses below Session VWAP",
+  );
+  await expect(builder.getByText(/1 \/ 64 conditions/).first()).toBeVisible();
+  expect(
+    (await new AxeBuilder({ page }).include("#strategy-builder").analyze()).violations,
+  ).toEqual([]);
+});
+
 test("recommends all-entry winner, accepts a custom period and saves tracking ON", async ({
   page,
 }) => {
@@ -1056,7 +1116,7 @@ test("recommends all-entry winner, accepts a custom period and saves tracking ON
   const panel = page.locator("#strategy-recommendation");
   await expect(panel.getByRole("heading", { name: "과거 수익률 추천" })).toBeVisible();
   await expect(panel.getByRole("heading", { name: "Rolling VWAP Breakout" })).toBeVisible();
-  await expect(panel.getByText(/42개 Entry 후보/)).toBeVisible();
+  await expect(panel.getByText(/43개 Entry 후보/)).toBeVisible();
   await panel.getByLabel("분석 시작일").fill("2026-07-01");
   await expect(panel.getByRole("button", { name: "추천 전략 적용" })).toHaveCount(0);
   await panel.getByLabel("분석 종료일").fill("2026-08-31");
@@ -1493,6 +1553,54 @@ test("saves, views, reloads and preserves orphaned history from the JSON library
   await globalHistory.getByRole("button", { name: /백테스트 이력 삭제/ }).click();
   await expect(globalHistory.getByText("아직 저장된 실행 결과가 없습니다.")).toBeVisible();
   await expect(globalHistory).toBeFocused();
+});
+
+test("selects one strategy and tracks multiple stocks and ETFs", async ({ page }) => {
+  await page.goto("/");
+  await selectInstrument(page);
+  await startV3Preset(page, "EMA / SMA Crossover", "EMA / SMA Crossover");
+  await page.getByLabel("저장 이름").fill("미국 멀티종목 감시");
+  await page.getByRole("button", { name: "새 전략 저장" }).click();
+  await page.getByRole("button", { name: /미국 멀티종목 감시.*엔비디아.*5m/ }).click();
+
+  const targets = page.locator(".monitor-targets");
+  await expect(targets.getByRole("heading", { name: "다종목 신호 감시" })).toBeVisible();
+  await targets.getByRole("searchbox", { name: "감시 종목명 또는 티커" }).fill("SPY");
+  await targets.getByRole("button", { name: "검색", exact: true }).click();
+  await expect(targets.getByText("FOREIGN_ETF", { exact: false })).toBeVisible();
+  await expect(targets.getByText("로컬 catalog cache", { exact: false })).toBeVisible();
+  await targets
+    .getByRole("list", { name: "감시 종목 검색 결과" })
+    .getByRole("button", { name: "추가", exact: true })
+    .click();
+  await expect(
+    targets.getByRole("list", { name: "현재 감시 종목" }).getByRole("listitem"),
+  ).toHaveCount(2);
+
+  const selectedTargets = targets.getByRole("list", { name: "현재 감시 종목" });
+  const primaryRow = selectedTargets.getByRole("listitem").filter({ hasText: "엔비디아" });
+  await primaryRow.getByRole("checkbox", { name: "감시 ON" }).uncheck();
+  await expect(primaryRow.getByText("TRACKING OFF", { exact: true })).toBeVisible();
+
+  const spyRow = selectedTargets.getByRole("listitem").filter({ hasText: "SPDR S&P 500 ETF" });
+  await spyRow.getByRole("button", { name: "인버스 선택" }).click();
+  await targets.getByRole("searchbox", { name: "인버스 ETF/ETN 이름 또는 티커" }).fill("SH");
+  await targets.getByRole("button", { name: "검색", exact: true }).click();
+  await targets.getByRole("button", { name: "헷지 지정" }).click();
+  await expect(spyRow.getByText(/매도 전환 헷지.*ProShares Short S&P500/)).toBeVisible();
+
+  await targets.getByRole("button", { name: "대상 저장 + 감시 시작" }).click();
+  await expect(page.getByText("1개 종목의 감시를 예약", { exact: false })).toBeVisible();
+  await expect(page.getByText("MONITOR ON", { exact: true })).toBeVisible();
+  await page.getByText("전략 JSON 보기").click();
+  await expect(page.locator(".strategy-view pre")).toContainText('"instrumentId": "NYSE:SPY"');
+  await expect(page.locator(".strategy-view pre")).toContainText('"instrumentId": "AMEX:SH"');
+  expect((await new AxeBuilder({ page }).include(".monitor-targets").analyze()).violations).toEqual(
+    [],
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
 });
 
 test("exposes Telegram and monitor state with keyboard-accessible controls", async ({ page }) => {
