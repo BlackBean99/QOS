@@ -30,6 +30,12 @@
 - 최종 자체 리뷰에서 `SAME_BAR_CLOSE`의 수량 0/비시장 주문 거절 event 누락과 숏 거래의 고정
   BUY→SELL 표기를 발견했다. 진입 체결 경로를 통합하고 LONG/SHORT별 action을 표와 타임라인에
   반영한 뒤 관련 unit test와 전체 gate를 다시 통과했다.
+- commit 기준 재배포에서 monitor의 1,200봉 cold warm-up 36회 요청이 약 12초 걸려 기존 10초
+  startup health deadline을 넘는 것을 재현했다. 개별 2초 health timeout과 실패 cleanup은 유지하고
+  전체 startup window만 bounded 30초로 늘렸다.
+- 기능 commit `f332dcc`를 origin/main에 push했다. 같은 commit의 production build를
+  `http://127.0.0.1:3000`에 다시 배포했으며 Next와 monitor status가 healthy인 것을 확인했다.
+  monitor API는 connected·PRIMARY·2 strategies/2 targets·last error 없음으로 응답했다.
 
 ## 2026-09-13 — 15-minute VWAP Telegram monitor and explicit inverse paper hedge
 

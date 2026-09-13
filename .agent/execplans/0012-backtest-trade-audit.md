@@ -2,7 +2,7 @@
 
 ## 목적과 사용자 결과
 
-- 상태: Active — Git delivery pending (2026-09-14)
+- 상태: Complete (2026-09-14)
 - 사용자는 0%로 뭉개진 결과 대신 거래 없음/실제 미미한 손익/손익 발생을 구분한다.
 - 각 거래에서 신호 시점, 다음 봉 체결, 분할·최종 청산, 가격·수량·수수료·슬리피지·순손익·수익률과 Decision Trace를 확인한다.
 - 티커별 추천 결과의 상위 후보를 직접 선택해 전략 편집기와 트래킹에 적용한다.
@@ -64,7 +64,7 @@
 - [x] 2026-09-13: 회계·진단·timeframe 호환성·TOSS 401 회귀 테스트와 구현을 완료했다.
 - [x] 2026-09-13: 360/390/768/1440 브라우저·접근성 매트릭스와 전체 품질 게이트를 통과했다.
 - [x] 2026-09-14: 실 TOSS stock master·추천·백테스트와 local production HTTP/monitor를 확인했다.
-- [ ] Git commit/push와 commit 기준 최종 local release 상태 기록
+- [x] 2026-09-14: 기능 commit `f332dcc`를 origin/main에 push하고 commit 기준 local release를 확인했다.
 
 ## 발견 사실과 남은 위험
 
@@ -89,3 +89,7 @@
   손익 대사 차이 0.00005 이내. Next와 monitor 상태는 healthy/connected다.
 - 자체 리뷰에서 SAME_BAR_CLOSE 거절 event 누락과 숏 전략 BUY/SELL 표기 오류를 발견해 배포 전에
   공통 체결 경로와 방향별 action 표기로 수정했다.
+- commit 기준 cold deploy에서 36개 provider page warm-up이 10초를 넘는 것을 확인해 monitor startup
+  health window를 bounded 30초로 조정했다. 개별 요청 timeout과 실패 cleanup은 유지한다.
+- final local release는 `http://127.0.0.1:3000`, commit `f332dcc`, Next+monitor `healthy`다.
+  monitor API는 connected·PRIMARY·2 strategies/2 targets·last error 없음이다.

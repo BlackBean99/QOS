@@ -27,6 +27,7 @@ const runtimeDirectory = path.join(repositoryRoot, ".qos", "runtime");
 const statePath = path.join(runtimeDirectory, "local-production.json");
 const lockPath = path.join(runtimeDirectory, "local-deploy.lock");
 const logPath = path.join(runtimeDirectory, "local-production.log");
+const monitorStartupHealthTimeoutMilliseconds = 30_000;
 const command = process.argv[2];
 
 interface RunningProcessInfo {
@@ -342,7 +343,7 @@ async function waitForHealth(port: number, pid: number): Promise<void> {
 }
 
 async function waitForMonitorHealth(port: number, pid: number, launchedAt: number): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + monitorStartupHealthTimeoutMilliseconds;
   let lastError = "monitor heartbeat did not respond";
   while (Date.now() < deadline) {
     if (!(await processExists(pid)))

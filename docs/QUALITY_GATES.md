@@ -20,21 +20,21 @@
 | Typecheck                | `npm run typecheck`            | Passed                             |
 | Unit tests               | `npm run test:unit`            | 197 passed                         |
 | Integration tests        | `npm run test:integration`     | 53 passed                          |
-| Full Vitest suite        | `npm run test`                 | 250 passed                         |
-| End-to-end               | `npm run test:e2e`             | 83 passed, 9 matrix skips          |
+| Full Vitest suite        | `npm run test`                 | 255 passed                         |
+| End-to-end               | `npm run test:e2e`             | 84 passed, 12 matrix skips         |
 | Production build         | `npm run build`                | Passed                             |
 | Production run           | `npm run start`                | v3 UI/catalog/monitor smoke passed |
-| Combined local gates     | `npm run verify`               | Passed on clean commit `a60d580`   |
-| Managed local deploy     | `npm run deploy:local`         | `a60d580` loopback healthy         |
+| Combined local gates     | `npm run verify`               | Passed for clean `f332dcc` source  |
+| Managed local deploy     | `npm run deploy:local`         | `f332dcc` loopback healthy         |
 | Local deployment status  | `npm run deploy:local:status`  | Next + monitor healthy             |
 | Managed local stop       | `npm run deploy:local:stop`    | Owned process stop passed          |
 | Verified local release   | verify + E2E + deploy sequence | Full gates + loopback smoke passed |
-| Monitor runtime          | `npm run monitor`              | connected, PRIMARY, error-free     |
+| Monitor runtime          | `npm run monitor`              | healthy, PRIMARY, reconnect active |
 | Accessibility automation | browser + `test:e2e`           | axe: 0 selected flow violations    |
 | Dependency audit         | `npm audit --omit=dev`         | 0 known production vulnerabilities |
 | Supabase migration       | `npm run db:migrations`        | Local/remote versions aligned      |
 | Supabase remote CRUD/RLS | temporary-row smoke            | CRUD/update/history/delete passed  |
-| TOSS real provider       | safe OAuth/master smoke        | HTTP 403; IP/permission unresolved |
+| TOSS real provider       | safe OAuth/master smoke        | KOSPI 2,474 rows, 005930 found     |
 
 E2E는 첫 실행 전에 `npx playwright install chromium`이 필요하다. 표의 결과는 현재
 작업 트리의 마지막 검증 기록이며 이후 코드 변경 뒤에는 다시 실행해야 한다.
@@ -48,6 +48,10 @@ MVP 완료 전 공식 production release는 `npm run release:local`이다. 전�
 정상이고 monitor heartbeat와 worker ownership을 확인한 경우에만 `127.0.0.1` 상태를 기록한다. `deploy:local`은 빠른 build/restart 경로라 전체
 release 증거를 대신하지 않는다. `deploy:local:stop`은 저장소/PID 시작 시각/cwd/process/listener
 소유권을 모두 확인한 프로세스만 종료한다.
+
+monitor 최초 warm-up은 공급자 page 수에 따라 10초를 넘을 수 있으므로 local deploy는 최대 30초
+동안 fresh heartbeat를 기다린다. 개별 health HTTP 요청은 2초 timeout이며, deadline 실패 시 시작한
+server와 worker를 정리한다.
 
 ## Test expectations by change
 
