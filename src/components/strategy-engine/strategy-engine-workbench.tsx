@@ -13,6 +13,7 @@ import {
   STRATEGY_CATALOG_V3,
   createPresetStrategyV3,
   createVwapIchimokuStrategyV3,
+  isPresetTimeframeSupportedV3,
   type StrategyCatalogCategory,
   type StrategyCatalogPreset,
   type StrategyCatalogRole,
@@ -29,6 +30,7 @@ import {
   type StrategyDefinitionV3,
   type StrategyTimeframe,
 } from "@/src/domain/strategy-v3/schema";
+import { BacktestTradeAudit } from "./backtest-trade-audit";
 
 interface Props {
   instrument: InstrumentSummary;
@@ -810,35 +812,10 @@ function ExitEditor({
   );
 }
 
-function TraceView({ trace }: { trace: GroupDecisionTraceLike }) {
-  return (
-    <ul className="engine-trace-list">
-      {trace.children.map((child) => (
-        <li key={child.id} data-pass={child.passed}>
-          {child.type === "CONDITION" ? (
-            <>
-              <span>{child.label ?? child.id}</span>
-              <strong>{child.passed ? "PASS" : child.status}</strong>
-              <code>
-                {child.current.left ?? "—"} {child.operator}{" "}
-                {child.current.right ?? child.current.lower ?? "—"}
-              </code>
-            </>
-          ) : (
-            <>
-              <span>{child.label ?? child.id}</span>
-              <strong>
-                {child.operator} · {child.passed ? "PASS" : "FAIL"}
-              </strong>
-            </>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
+function resultPercent(value: number): string {
+  const digits = value !== 0 && Math.abs(value) < 0.01 ? 4 : 2;
+  return `${value.toFixed(digits)}%`;
 }
-
-type GroupDecisionTraceLike = BacktestResultV3["trades"][number]["entryTrace"];
 
 function ResultPanel({
   result,
@@ -866,7 +843,10 @@ function ResultPanel({
       </header>
       <dl className="engine-metrics">
         {[
-          ["총 수익률", `${metric.totalReturnPercent.toFixed(2)}%`],
+          [
+            "총 수익률",
+            metric.numberOfTrades === 0 ? "거래 없음" : resultPercent(metric.totalReturnPercent),
+          ],
           ["CAGR", `${metric.cagrPercent.toFixed(2)}%`],
           ["MDD", `${metric.maximumDrawdownPercent.toFixed(2)}%`],
           ["Sharpe", metric.sharpeRatio.toFixed(2)],
@@ -900,7 +880,11 @@ function ResultPanel({
             {comparisons.map((run) => (
               <div role="row" key={run.strategy.name}>
                 <strong role="cell">{run.strategy.name}</strong>
-                <span role="cell">{run.metrics.totalReturnPercent.toFixed(2)}%</span>
+                <span role="cell">
+                  {run.metrics.numberOfTrades === 0
+                    ? "거래 없음"
+                    : resultPercent(run.metrics.totalReturnPercent)}
+                </span>
                 <span role="cell">{run.metrics.maximumDrawdownPercent.toFixed(2)}%</span>
                 <span role="cell">{run.metrics.sharpeRatio.toFixed(2)}</span>
                 <span role="cell">{run.metrics.numberOfTrades}</span>
@@ -913,42 +897,7 @@ function ResultPanel({
         </div>
       ) : null}
       <div className="engine-result-grid">
-        <div>
-          <h4>Trade ledger</h4>
-          {result.trades.length ? (
-            result.trades.slice(0, 30).map((trade, index) => (
-              <details key={`${trade.entryAt}-${index}`}>
-                <summary>
-                  <span>{trade.entryAt}</span>
-                  <strong>
-                    {trade.netPnl.toLocaleString("ko-KR")} · {trade.exitReason ?? "OPEN"}
-                  </strong>
-                </summary>
-                <TraceView trace={trade.entryTrace} />
-                <dl>
-                  <div>
-                    <dt>진입</dt>
-                    <dd>{trade.entryPrice}</dd>
-                  </div>
-                  <div>
-                    <dt>MFE / MAE</dt>
-                    <dd>
-                      {trade.mfePercent.toFixed(2)}% / {trade.maePercent.toFixed(2)}%
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>비용</dt>
-                    <dd>{trade.fee.toFixed(2)}</dd>
-                  </div>
-                </dl>
-              </details>
-            ))
-          ) : (
-            <p className="engine-empty-copy">
-              이 구간에는 완성된 거래가 없습니다. Warm-up, 규칙 trace와 데이터 범위를 확인하세요.
-            </p>
-          )}
-        </div>
+        <BacktestTradeAudit result={result} />
         <aside>
           <h4>실행 가정</h4>
           <ul>
@@ -1027,6 +976,12 @@ export function StrategyEngineWorkbench({
       commit(next);
       setStatus(
         `${preset.name}에서 시작했습니다. Entry/Filter는 최대 64개까지 계속 추가할 수 있습니다.`,
+      );
+      return;
+    }
+    if (!isPresetTimeframeSupportedV3(preset, strategy.timeframe)) {
+      setStatus(
+        `${preset.name}은 ${preset.supportedTimeframes.join(" · ")}에서만 사용할 수 있습니다. 현재 ${strategy.timeframe} 전략에는 추가하지 않았습니다.`,
       );
       return;
     }
@@ -1334,6 +1289,10 @@ export function StrategyEngineWorkbench({
                     <dt>데이터</dt>
                     <dd>{preset.dataRequirements.join(", ")}</dd>
                   </div>
+                  <div>
+                    <dt>지원 봉</dt>
+                    <dd>{preset.supportedTimeframes.join(" · ")}</dd>
+                  </div>
                 </dl>
                 <details>
                   <summary>Parameters {preset.parameters.length}</summary>
@@ -1347,7 +1306,13 @@ export function StrategyEngineWorkbench({
                   </ul>
                 </details>
                 <div className="engine-preset-actions">
-                  <button type="button" onClick={() => addPreset(preset)}>
+                  <button
+                    type="button"
+                    disabled={
+                      strategy ? !isPresetTimeframeSupportedV3(preset, strategy.timeframe) : false
+                    }
+                    onClick={() => addPreset(preset)}
+                  >
                     {strategy
                       ? "Rule Chain에 추가"
                       : preset.role === "ENTRY"

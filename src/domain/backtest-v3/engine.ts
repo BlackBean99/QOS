@@ -3,7 +3,11 @@ import {
   IndicatorRegistry,
   type IndicatorRuntimeContext,
 } from "@/src/domain/strategy-runtime/indicators";
-import { evaluateRule, type GroupDecisionTrace } from "@/src/domain/strategy-runtime/rules";
+import {
+  evaluateRule,
+  type DecisionTrace,
+  type GroupDecisionTrace,
+} from "@/src/domain/strategy-runtime/rules";
 import {
   applyBreakEven,
   applyScaleOut,
@@ -41,8 +45,11 @@ export interface BacktestFillV3 {
   ruleId: string;
   fee: number;
   slippageCost: number;
+  entryCostAllocation: number;
   grossPnl: number;
   netPnl: number;
+  returnPercent: number;
+  cumulativeNetPnl: number;
   remainingQuantity: number;
   trace?: GroupDecisionTrace;
 }
@@ -53,6 +60,9 @@ export interface BacktestTradeV3 {
   entrySignalAt: string;
   entryAt: string;
   entryPrice: number;
+  entryRawPrice: number;
+  entryFee: number;
+  entrySlippageCost: number;
   entryReason: string;
   entryTrace: GroupDecisionTrace;
   positionSize: number;
@@ -73,6 +83,59 @@ export interface BacktestTradeV3 {
   mfePercent: number;
   maePercent: number;
   stopPath: Array<{ at: string; value: number; reason: string }>;
+}
+
+export type BacktestNoTradeReasonV3 =
+  | "WARM_UP_ONLY"
+  | "NO_ENTRY_MATCH"
+  | "FILTER_BLOCKED"
+  | "ORDER_NOT_FILLED"
+  | "POSITION_SIZE_ZERO"
+  | "SIGNAL_AT_END_OF_DATA";
+
+export interface BacktestConditionStatV3 {
+  scope: "ENTRY" | "FILTER";
+  ruleId: string;
+  label: string;
+  operator: string;
+  evaluated: number;
+  passed: number;
+  failed: number;
+  warmup: number;
+  lastAt: string;
+  lastStatus: "PASS" | "FAIL" | "WARM_UP";
+}
+
+export interface BacktestDiagnosticsV3 {
+  evaluatedBars: number;
+  warmupBars: number;
+  firstReadyAt: string | null;
+  entryPasses: number;
+  filterPasses: number;
+  combinedSignals: number;
+  entryFills: number;
+  exitFills: number;
+  closedTrades: number;
+  rejectedSignals: number;
+  noTradeReason: BacktestNoTradeReasonV3 | null;
+  conditionStats: BacktestConditionStatV3[];
+}
+
+export interface BacktestEventV3 {
+  sequence: number;
+  type:
+    "ENTRY_SIGNAL" | "ENTRY_FILL" | "ENTRY_REJECTED" | "EXIT_SIGNAL" | "EXIT_FILL" | "FORCED_EXIT";
+  at: string;
+  signalAt?: string;
+  tradeIndex?: number;
+  price?: number;
+  rawPrice?: number;
+  quantity?: number;
+  remainingQuantity?: number;
+  reason: string;
+  netPnl?: number;
+  returnPercent?: number;
+  trace?: GroupDecisionTrace;
 }
 
 export interface BacktestMetricsV3 {
@@ -109,6 +172,8 @@ export interface BacktestResultV3 {
   trades: BacktestTradeV3[];
   equityCurve: Array<{ at: string; equity: number; drawdownPercent: number }>;
   rejectedSignals: Array<{ at: string; reason: string; trace?: GroupDecisionTrace }>;
+  events: BacktestEventV3[];
+  diagnostics: BacktestDiagnosticsV3;
   assumptions: string[];
   limitations: string[];
   dataPolicy: {
@@ -127,6 +192,8 @@ interface OpenTrade {
   entryFee: number;
   entrySlippageCost: number;
   entrySignalIndex: number;
+  allocatedEntryFee: number;
+  allocatedEntrySlippageCost: number;
 }
 
 interface PendingEntry {
@@ -163,6 +230,44 @@ const timeframeMinutes: Record<StrategyDefinitionV3["timeframe"], number> = {
 
 function round(value: number, digits = 6): number {
   return Number(value.toFixed(digits));
+}
+
+function traceHasWarmup(trace: DecisionTrace): boolean {
+  return trace.type === "CONDITION"
+    ? trace.status === "WARM_UP"
+    : trace.children.some(traceHasWarmup);
+}
+
+function collectConditionStats(
+  stats: Map<string, BacktestConditionStatV3>,
+  scope: BacktestConditionStatV3["scope"],
+  trace: DecisionTrace,
+  at: string,
+): void {
+  if (trace.type === "GROUP") {
+    for (const child of trace.children) collectConditionStats(stats, scope, child, at);
+    return;
+  }
+  const key = `${scope}:${trace.id}`;
+  const current = stats.get(key) ?? {
+    scope,
+    ruleId: trace.id,
+    label: trace.label ?? trace.id,
+    operator: trace.operator,
+    evaluated: 0,
+    passed: 0,
+    failed: 0,
+    warmup: 0,
+    lastAt: at,
+    lastStatus: trace.status,
+  };
+  current.evaluated += 1;
+  if (trace.status === "PASS") current.passed += 1;
+  else if (trace.status === "FAIL") current.failed += 1;
+  else current.warmup += 1;
+  current.lastAt = at;
+  current.lastStatus = trace.status;
+  stats.set(key, current);
 }
 
 function tickRound(value: number, tick: number, buying: boolean): number {
@@ -529,7 +634,9 @@ export function runBacktestV3(
   });
   const trades: BacktestTradeV3[] = [];
   const rejectedSignals: BacktestResultV3["rejectedSignals"] = [];
+  const events: BacktestEventV3[] = [];
   const equityCurve: BacktestResultV3["equityCurve"] = [];
+  const conditionStats = new Map<string, BacktestConditionStatV3>();
   let openTrade: OpenTrade | null = null;
   let pendingEntry: PendingEntry | null = null;
   let pendingExit: PendingExit | null = null;
@@ -540,6 +647,128 @@ export function runBacktestV3(
   let consecutiveLosses = 0;
   let activeDay = "";
   let sessionStartingEquity = strategy.execution.startingCapital;
+  let evaluatedBars = 0;
+  let warmupBars = 0;
+  let firstReadyAt: string | null = null;
+  let entryPasses = 0;
+  let filterPasses = 0;
+  let combinedSignals = 0;
+  let entryFills = 0;
+  let exitFills = 0;
+
+  const appendEvent = (event: Omit<BacktestEventV3, "sequence">) => {
+    events.push({ sequence: events.length + 1, ...event });
+  };
+
+  const rejectEntry = (pending: PendingEntry, at: string, reason: string) => {
+    rejectedSignals.push({ at, reason, trace: pending.trace });
+    appendEvent({
+      type: "ENTRY_REJECTED",
+      at,
+      signalAt: candles[pending.signalIndex].date,
+      reason,
+      trace: pending.trace,
+    });
+  };
+
+  const executeEntry = (
+    pending: PendingEntry,
+    candle: Candle,
+    entryIndex: number,
+  ): OpenTrade | null => {
+    const fill = fillEntryOrder(pending, candle, strategy, candles);
+    if (!fill) {
+      rejectEntry(pending, candle.date, "ENTRY_ORDER_NOT_FILLED");
+      return null;
+    }
+
+    const initialStop = calculateInitialStop(
+      strategy.side,
+      fill.price,
+      strategy.exits,
+      (period) => registry.value(atrOperand(strategy, period), pending.signalIndex),
+      strategy.execution.minimumTick,
+    );
+    const equity = strategy.execution.startingCapital + realizedNet;
+    const quantity = calculatePositionQuantity({
+      sizing: strategy.positionSizing,
+      equity,
+      entryPrice: fill.price,
+      initialStop,
+      maximumAllocationPercent: strategy.risk.maximumSymbolAllocationPercent,
+    });
+    if (quantity <= 0) {
+      rejectEntry(pending, candle.date, "POSITION_SIZE_ZERO");
+      return null;
+    }
+
+    const fee = (fill.price * quantity * strategy.execution.commissionBps) / 10_000;
+    const slippageCost = fill.slippageCostPerUnit * quantity;
+    realizedNet -= fee + slippageCost;
+    turnover += fill.price * quantity;
+    const position = createPositionState({
+      side: strategy.side,
+      entryPrice: fill.price,
+      quantity,
+      initialStop,
+      entryAt: candle.date,
+      entryIndex,
+    });
+    const record: BacktestTradeV3 = {
+      status: "OPEN",
+      side: strategy.side,
+      entrySignalAt: candles[pending.signalIndex].date,
+      entryAt: candle.date,
+      entryPrice: fill.price,
+      entryRawPrice: fill.rawPrice,
+      entryFee: round(fee),
+      entrySlippageCost: round(slippageCost),
+      entryReason: "ENTRY_RULE_CHAIN",
+      entryTrace: pending.trace,
+      positionSize: quantity,
+      initialStop,
+      fills: [],
+      grossPnl: 0,
+      fee: round(fee),
+      slippageCost: round(slippageCost),
+      netPnl: round(-fee - slippageCost),
+      returnPercent: 0,
+      rMultiple: null,
+      holdingBars: 0,
+      holdingMinutes: 0,
+      mfePercent: 0,
+      maePercent: 0,
+      stopPath:
+        initialStop === null
+          ? []
+          : [{ at: candle.date, value: initialStop, reason: "initial-stop" }],
+    };
+    const openedTrade: OpenTrade = {
+      position,
+      record,
+      entryFee: fee,
+      entrySlippageCost: slippageCost,
+      entrySignalIndex: pending.signalIndex,
+      allocatedEntryFee: 0,
+      allocatedEntrySlippageCost: 0,
+    };
+    position.realizedPnl = -fee - slippageCost;
+    trades.push(record);
+    entryFills += 1;
+    appendEvent({
+      type: "ENTRY_FILL",
+      at: candle.date,
+      signalAt: candles[pending.signalIndex].date,
+      tradeIndex: trades.length - 1,
+      price: fill.price,
+      rawPrice: fill.rawPrice,
+      quantity: round(quantity),
+      remainingQuantity: round(quantity),
+      reason: "ENTRY_RULE_CHAIN",
+      trace: pending.trace,
+    });
+    return openedTrade;
+  };
 
   const closeQuantity = (
     event: PendingExit | PriceExitEvent,
@@ -554,12 +783,24 @@ export function runBacktestV3(
     const buying = state.side === "SHORT";
     const executed = executionPrice(rawPrice, buying, strategy);
     const grossPnl =
-      (state.side === "LONG" ? 1 : -1) * (executed.price - state.entryPrice) * quantity;
-    const fee = (executed.price * quantity * strategy.execution.commissionBps) / 10_000;
-    const slippageCost = executed.slippageCostPerUnit * quantity;
-    const netPnl = grossPnl - fee;
-    state.realizedPnl += netPnl;
-    realizedNet += netPnl;
+      (state.side === "LONG" ? 1 : -1) * (rawPrice - openTrade.record.entryRawPrice) * quantity;
+    const exitFee = (executed.price * quantity * strategy.execution.commissionBps) / 10_000;
+    const exitSlippageCost = executed.slippageCostPerUnit * quantity;
+    const isFinalFill = state.remainingQuantity <= 1e-9;
+    const entryFeeAllocation = isFinalFill
+      ? openTrade.entryFee - openTrade.allocatedEntryFee
+      : openTrade.entryFee * (quantity / state.initialQuantity);
+    const entrySlippageAllocation = isFinalFill
+      ? openTrade.entrySlippageCost - openTrade.allocatedEntrySlippageCost
+      : openTrade.entrySlippageCost * (quantity / state.initialQuantity);
+    openTrade.allocatedEntryFee += entryFeeAllocation;
+    openTrade.allocatedEntrySlippageCost += entrySlippageAllocation;
+    const fee = exitFee + entryFeeAllocation;
+    const slippageCost = exitSlippageCost + entrySlippageAllocation;
+    const netPnl = grossPnl - fee - slippageCost;
+    const exitNetPnl = grossPnl - exitFee - exitSlippageCost;
+    state.realizedPnl += exitNetPnl;
+    realizedNet += exitNetPnl;
     turnover += executed.price * quantity;
     const fill: BacktestFillV3 = {
       at: candle.date,
@@ -570,17 +811,38 @@ export function runBacktestV3(
       ruleId: event.ruleId,
       fee: round(fee),
       slippageCost: round(slippageCost),
+      entryCostAllocation: round(entryFeeAllocation + entrySlippageAllocation),
       grossPnl: round(grossPnl),
       netPnl: round(netPnl),
+      returnPercent: round((netPnl / (openTrade.record.entryRawPrice * quantity)) * 100, 4),
+      cumulativeNetPnl: 0,
       remainingQuantity: round(state.remainingQuantity),
       ...(trace ? { trace } : {}),
     };
     openTrade.record.fills.push(fill);
     openTrade.record.grossPnl = round(openTrade.record.grossPnl + grossPnl);
-    openTrade.record.fee = round(openTrade.record.fee + fee);
-    openTrade.record.slippageCost = round(openTrade.record.slippageCost + slippageCost);
-    openTrade.record.netPnl = round(openTrade.record.grossPnl - openTrade.record.fee);
-    if (state.remainingQuantity <= 1e-9) {
+    openTrade.record.fee = round(openTrade.record.fee + exitFee);
+    openTrade.record.slippageCost = round(openTrade.record.slippageCost + exitSlippageCost);
+    openTrade.record.netPnl = round(
+      openTrade.record.grossPnl - openTrade.record.fee - openTrade.record.slippageCost,
+    );
+    fill.cumulativeNetPnl = openTrade.record.netPnl;
+    exitFills += 1;
+    const tradeIndex = trades.indexOf(openTrade.record);
+    appendEvent({
+      type: event.ruleId === "end-of-data" ? "FORCED_EXIT" : "EXIT_FILL",
+      at: candle.date,
+      tradeIndex,
+      price: executed.price,
+      rawPrice,
+      quantity: round(quantity),
+      remainingQuantity: round(state.remainingQuantity),
+      reason: event.reason,
+      netPnl: round(netPnl),
+      returnPercent: round((netPnl / (openTrade.record.entryRawPrice * quantity)) * 100, 4),
+      ...(trace ? { trace } : {}),
+    });
+    if (isFinalFill) {
       const record = openTrade.record;
       record.status = "CLOSED";
       record.exitAt = candle.date;
@@ -590,7 +852,7 @@ export function runBacktestV3(
       record.holdingBars = state.barsHeld;
       record.holdingMinutes = state.barsHeld * timeframeMinutes[strategy.timeframe];
       record.returnPercent = round(
-        (record.netPnl / (record.entryPrice * record.positionSize)) * 100,
+        (record.netPnl / (record.entryRawPrice * record.positionSize)) * 100,
         4,
       );
       record.rMultiple = state.initialRiskPerUnit
@@ -609,82 +871,7 @@ export function runBacktestV3(
       sessionStartingEquity = strategy.execution.startingCapital + realizedNet;
     }
     if (pendingEntry && !openTrade) {
-      const fill = fillEntryOrder(pendingEntry, candle, strategy, candles);
-      if (fill) {
-        const initialStop = calculateInitialStop(
-          strategy.side,
-          fill.price,
-          strategy.exits,
-          (period) => registry.value(atrOperand(strategy, period), pendingEntry!.signalIndex),
-          strategy.execution.minimumTick,
-        );
-        const equity = strategy.execution.startingCapital + realizedNet;
-        const quantity = calculatePositionQuantity({
-          sizing: strategy.positionSizing,
-          equity,
-          entryPrice: fill.price,
-          initialStop,
-          maximumAllocationPercent: strategy.risk.maximumSymbolAllocationPercent,
-        });
-        if (quantity > 0) {
-          const fee = (fill.price * quantity * strategy.execution.commissionBps) / 10_000;
-          const slippageCost = fill.slippageCostPerUnit * quantity;
-          realizedNet -= fee;
-          turnover += fill.price * quantity;
-          const position = createPositionState({
-            side: strategy.side,
-            entryPrice: fill.price,
-            quantity,
-            initialStop,
-            entryAt: candle.date,
-            entryIndex: index,
-          });
-          const record: BacktestTradeV3 = {
-            status: "OPEN",
-            side: strategy.side,
-            entrySignalAt: candles[pendingEntry.signalIndex].date,
-            entryAt: candle.date,
-            entryPrice: fill.price,
-            entryReason: "ENTRY_RULE_CHAIN",
-            entryTrace: pendingEntry.trace,
-            positionSize: quantity,
-            initialStop,
-            fills: [],
-            grossPnl: 0,
-            fee: round(fee),
-            slippageCost: round(slippageCost),
-            netPnl: round(-fee),
-            returnPercent: 0,
-            rMultiple: null,
-            holdingBars: 0,
-            holdingMinutes: 0,
-            mfePercent: 0,
-            maePercent: 0,
-            stopPath:
-              initialStop === null
-                ? []
-                : [{ at: candle.date, value: initialStop, reason: "initial-stop" }],
-          };
-          openTrade = {
-            position,
-            record,
-            entryFee: fee,
-            entrySlippageCost: slippageCost,
-            entrySignalIndex: pendingEntry.signalIndex,
-          };
-          trades.push(record);
-        } else
-          rejectedSignals.push({
-            at: candle.date,
-            reason: "POSITION_SIZE_ZERO",
-            trace: pendingEntry.trace,
-          });
-      } else
-        rejectedSignals.push({
-          at: candle.date,
-          reason: "ENTRY_ORDER_NOT_FILLED",
-          trace: pendingEntry.trace,
-        });
+      openTrade = executeEntry(pendingEntry, candle, index);
       pendingEntry = null;
     }
 
@@ -803,6 +990,13 @@ export function runBacktestV3(
           pendingExit = closeSignals.toSorted(
             (a, b) => (priority.get(a.ruleId) ?? 1_000) - (priority.get(b.ruleId) ?? 1_000),
           )[0];
+          appendEvent({
+            type: "EXIT_SIGNAL",
+            at: candle.date,
+            tradeIndex: trades.indexOf(openTrade.record),
+            reason: pendingExit.reason,
+            ...(pendingExit.trace ? { trace: pendingExit.trace } : {}),
+          });
         }
       }
     }
@@ -810,7 +1004,30 @@ export function runBacktestV3(
     if (!openTrade && !pendingEntry && !pendingExit) {
       const entry = evaluateRule(strategy.entry, index, registry, candles);
       const filters = evaluateRule(strategy.filters, index, registry, candles);
+      evaluatedBars += 1;
+      collectConditionStats(conditionStats, "ENTRY", entry.trace, candle.date);
+      collectConditionStats(conditionStats, "FILTER", filters.trace, candle.date);
+      const warmingUp = traceHasWarmup(entry.trace) || traceHasWarmup(filters.trace);
+      if (warmingUp) warmupBars += 1;
+      else if (firstReadyAt === null) firstReadyAt = candle.date;
+      if (entry.passed) entryPasses += 1;
+      if (filters.passed) filterPasses += 1;
       if (entry.passed && filters.passed) {
+        const signalTrace: GroupDecisionTrace = {
+          type: "GROUP",
+          id: "entry-filter-chain",
+          label: "Entry + Filters",
+          operator: "AND",
+          passed: true,
+          children: [entry.trace, filters.trace],
+        };
+        combinedSignals += 1;
+        appendEvent({
+          type: "ENTRY_SIGNAL",
+          at: candle.date,
+          reason: "ENTRY_RULE_CHAIN",
+          trace: signalTrace,
+        });
         const equity = strategy.execution.startingCapital + realizedNet;
         const drawdown = peakEquity === 0 ? 0 : ((peakEquity - equity) / peakEquity) * 100;
         const dailyLoss =
@@ -831,99 +1048,34 @@ export function runBacktestV3(
                     drawdown >= strategy.risk.maximumPortfolioDrawdownPercent
                   ? "MAXIMUM_PORTFOLIO_DRAWDOWN"
                   : null;
-        if (blocked) rejectedSignals.push({ at: candle.date, reason: blocked, trace: entry.trace });
-        else if (strategy.execution.fillAt === "SAME_BAR_CLOSE") {
-          pendingEntry = { signalIndex: index, trace: entry.trace };
-          const fill = fillEntryOrder(
-            pendingEntry,
-            { ...candle, open: candle.close },
-            strategy,
-            candles,
+        if (blocked) {
+          rejectedSignals.push({ at: candle.date, reason: blocked, trace: signalTrace });
+          appendEvent({
+            type: "ENTRY_REJECTED",
+            at: candle.date,
+            reason: blocked,
+            trace: signalTrace,
+          });
+        } else if (strategy.execution.fillAt === "SAME_BAR_CLOSE") {
+          const closeOnlyCandle = {
+            ...candle,
+            open: candle.close,
+            high: candle.close,
+            low: candle.close,
+          };
+          openTrade = executeEntry(
+            { signalIndex: index, trace: signalTrace },
+            closeOnlyCandle,
+            index,
           );
-          if (fill) {
-            const next = pendingEntry;
-            pendingEntry = next;
-            // Same-close is deliberately explicit; execute through the normal branch on a synthetic close.
-            const synthetic = {
-              ...candle,
-              open: candle.close,
-              high: candle.close,
-              low: candle.close,
-            };
-            const saved = strategy.execution.order;
-            if (saved.type === "MARKET") {
-              const initialStop = calculateInitialStop(
-                strategy.side,
-                fill.price,
-                strategy.exits,
-                (period) => registry.value(atrOperand(strategy, period), index),
-                strategy.execution.minimumTick,
-              );
-              const quantity = calculatePositionQuantity({
-                sizing: strategy.positionSizing,
-                equity,
-                entryPrice: fill.price,
-                initialStop,
-                maximumAllocationPercent: strategy.risk.maximumSymbolAllocationPercent,
-              });
-              if (quantity > 0) {
-                const fee = (fill.price * quantity * strategy.execution.commissionBps) / 10_000;
-                realizedNet -= fee;
-                turnover += fill.price * quantity;
-                const position = createPositionState({
-                  side: strategy.side,
-                  entryPrice: fill.price,
-                  quantity,
-                  initialStop,
-                  entryAt: synthetic.date,
-                  entryIndex: index,
-                });
-                const record: BacktestTradeV3 = {
-                  status: "OPEN",
-                  side: strategy.side,
-                  entrySignalAt: candle.date,
-                  entryAt: candle.date,
-                  entryPrice: fill.price,
-                  entryReason: "ENTRY_RULE_CHAIN",
-                  entryTrace: entry.trace,
-                  positionSize: quantity,
-                  initialStop,
-                  fills: [],
-                  grossPnl: 0,
-                  fee: round(fee),
-                  slippageCost: round(fill.slippageCostPerUnit * quantity),
-                  netPnl: round(-fee),
-                  returnPercent: 0,
-                  rMultiple: null,
-                  holdingBars: 0,
-                  holdingMinutes: 0,
-                  mfePercent: 0,
-                  maePercent: 0,
-                  stopPath:
-                    initialStop === null
-                      ? []
-                      : [{ at: candle.date, value: initialStop, reason: "initial-stop" }],
-                };
-                openTrade = {
-                  position,
-                  record,
-                  entryFee: fee,
-                  entrySlippageCost: fill.slippageCostPerUnit * quantity,
-                  entrySignalIndex: index,
-                };
-                trades.push(record);
-              }
-            }
-          }
-          pendingEntry = null;
         } else if (index + 1 < candles.length)
-          pendingEntry = { signalIndex: index, trace: entry.trace };
+          pendingEntry = { signalIndex: index, trace: signalTrace };
       }
     }
 
     const unrealized = openTrade
       ? (openTrade.position.side === "LONG" ? 1 : -1) *
-        (candle.close - openTrade.position.entryPrice) *
+        (candle.close - openTrade.record.entryRawPrice) *
         openTrade.position.remainingQuantity
       : 0;
     const equity = strategy.execution.startingCapital + realizedNet + unrealized;
@@ -963,6 +1115,17 @@ export function runBacktestV3(
         ]
       : []),
   ];
+  let noTradeReason: BacktestNoTradeReasonV3 | null = null;
+  if (entryFills === 0) {
+    if (firstReadyAt === null) noTradeReason = "WARM_UP_ONLY";
+    else if (entryPasses === 0) noTradeReason = "NO_ENTRY_MATCH";
+    else if (combinedSignals === 0) noTradeReason = "FILTER_BLOCKED";
+    else if (rejectedSignals.some((signal) => signal.reason === "POSITION_SIZE_ZERO"))
+      noTradeReason = "POSITION_SIZE_ZERO";
+    else if (rejectedSignals.some((signal) => signal.reason === "ENTRY_ORDER_NOT_FILLED"))
+      noTradeReason = "ORDER_NOT_FILLED";
+    else noTradeReason = "SIGNAL_AT_END_OF_DATA";
+  }
   return {
     strategy,
     period: {
@@ -974,6 +1137,24 @@ export function runBacktestV3(
     trades,
     equityCurve,
     rejectedSignals,
+    events,
+    diagnostics: {
+      evaluatedBars,
+      warmupBars,
+      firstReadyAt,
+      entryPasses,
+      filterPasses,
+      combinedSignals,
+      entryFills,
+      exitFills,
+      closedTrades: trades.filter((trade) => trade.status === "CLOSED").length,
+      rejectedSignals: rejectedSignals.length,
+      noTradeReason,
+      conditionStats: [...conditionStats.values()].toSorted(
+        (left, right) =>
+          left.scope.localeCompare(right.scope) || left.ruleId.localeCompare(right.ruleId),
+      ),
+    },
     assumptions,
     limitations,
     dataPolicy: {

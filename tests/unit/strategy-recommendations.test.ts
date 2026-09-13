@@ -5,6 +5,11 @@ import {
   rankRecommendationCandidates,
   type RecommendationCandidate,
 } from "@/src/server/strategy-recommendations";
+import {
+  ENTRY_PRESETS_V3,
+  createPresetStrategyV3,
+  isPresetTimeframeSupportedV3,
+} from "@/src/domain/strategy-v3/catalog";
 
 function candidate(
   presetId: string,
@@ -28,6 +33,21 @@ function candidate(
 }
 
 describe("strategy recommendations", () => {
+  it("excludes session-only entry presets from daily research", () => {
+    const session = ENTRY_PRESETS_V3.find((preset) => preset.id === "session-vwap-breakout")!;
+    const exact15m = ENTRY_PRESETS_V3.find((preset) => preset.id === "session-vwap-open-cross")!;
+    const rolling = ENTRY_PRESETS_V3.find((preset) => preset.id === "rolling-vwap-breakout")!;
+
+    expect(isPresetTimeframeSupportedV3(session, "1d")).toBe(false);
+    expect(isPresetTimeframeSupportedV3(session, "15m")).toBe(true);
+    expect(isPresetTimeframeSupportedV3(exact15m, "5m")).toBe(false);
+    expect(isPresetTimeframeSupportedV3(exact15m, "15m")).toBe(true);
+    expect(isPresetTimeframeSupportedV3(rolling, "1d")).toBe(true);
+    expect(() =>
+      createPresetStrategyV3("session-vwap-breakout", "NASDAQ:NVDA", { timeframe: "1d" }),
+    ).toThrow(/does not support 1d/);
+  });
+
   it("ranks traded candidates by return, drawdown, Sharpe and stable id", () => {
     const ranked = rankRecommendationCandidates([
       candidate("no-trade", 99, 0, 99, 0),

@@ -129,6 +129,34 @@ describe("TossClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("refreshes an invalid access token once even for quota-sensitive stock master calls", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ access_token: "stale-token", token_type: "Bearer", expires_in: 3600 }),
+      )
+      .mockResolvedValueOnce(response({ error: "expired" }, 401))
+      .mockResolvedValueOnce(
+        response({ access_token: "fresh-token", token_type: "Bearer", expires_in: 3600 }),
+      )
+      .mockResolvedValueOnce(response({ result: [] }));
+    const client = new TossClient({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl: fetchMock,
+      sleep: async () => undefined,
+    });
+
+    await expect(client.listStocks("KOSPI")).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("authorization")).toBe(
+      "Bearer stale-token",
+    );
+    expect(new Headers(fetchMock.mock.calls[3]?.[1]?.headers).get("authorization")).toBe(
+      "Bearer fresh-token",
+    );
+  });
+
   it("uses exponential fallback when Retry-After is missing on ordinary requests", async () => {
     const sleeps: number[] = [];
     const fetchMock = vi

@@ -20,14 +20,15 @@ backtest/실시간 감시하는 로컬 단일 사용자 Quant 웹앱입니다. �
 - Session/Weekly/Monthly/Anchored/Rolling VWAP, trend·momentum·breakout·mean reversion·
   volatility·volume·Ichimoku·market structure operand와 독립 Exit/Risk/Position/Execution
 - T close→T+1 open 기본 체결, 비용·spread·tick·conservative intrabar, partial exit와 전체
-  trade/metric/Decision Trace 및 동일 Entry/Exit 비교
+  신호→체결→청산 event log, raw 손익−비용 대사, condition 진단·Decision Trace 및 전략 비교
 - Supabase의 versioned 전략 JSON CRUD/import/export와 저장 전략별 백테스트 snapshot 이력
 - Supabase 미구성 개발·테스트 환경을 위한 `.qos/data` local JSON 호환 adapter
 - 저장 전략 하나에 최대 50개 주식·ETF 감시 대상을 연결하고 종목별 ON/OFF·명시적 inverse
   paper hedge를 관리하는 strategy-first watchlist
 - 별도 monitor process의 대상별 완성 봉 신호·영속 중복 방지·Telegram private-chat 전환 알림과
   원격 저장소 장애 시 read-only 마지막 정상 전략 snapshot
-- 종목 선택 시 Entry 43개 전체를 같은 기간·비용으로 평가하는 역사적 수익률 추천과 상위 후보
+- 종목 선택 시 timeframe 호환 Entry를 같은 기간·비용으로 평가하는 역사적 수익률 추천과 선택 가능한
+  상위 후보; Session VWAP/Opening Range는 일봉 추천에서 제외
 - 직접 설정 또는 timeframe별 자동 backtest 기간, 추천 적용과 한 번의 저장+paper tracking ON
 - 종목·timeframe 공유 candle cache, session-aligned gap repair와 provider 요청 관측
 
@@ -106,6 +107,9 @@ Strategy v3 API는 `GET /api/strategy-engine/catalog`, `POST /api/strategy-engin
 보내 같은 dataset과 비용 조건에서 실행합니다. 자연어 결과도 임의 코드를 실행하지 않고 검증된
 v3 JSON만 반환합니다. backtest/recommendation의 `window`은 optional 시작일·종료일이며 생략하면
 분봉 30일, 일봉 2년, 주봉 5년을 종목 timezone 기준으로 선택합니다.
+백테스트 결과는 거래가 없을 때 단순 `0.00%` 대신 warm-up, Entry 불일치, Filter 차단, 주문 미체결
+등의 원인과 condition별 판정 횟수를 표시하고, 거래가 있으면 BUY/SELL 시각·가격·수량·부분 청산·
+수수료·슬리피지·거래별/누적 순손익과 수익률을 표와 타임라인으로 표시합니다.
 
 MVP 완료 전 production target은 이 Mac의 loopback interface뿐입니다. 최신 source를 build해
 `127.0.0.1:3000`에 재배포하려면 다음 명령을 사용합니다.
@@ -179,6 +183,7 @@ e2e/                 360/390/768/1440 browser/accessibility tests
 - [Strategy v3 specification](SPEC-strategy-engine-v3.md)
 - [추천·기간·tracking specification](SPEC-strategy-recommendation-tracking.md)
 - [추천·tracking ExecPlan](.agent/execplans/0008-strategy-recommendation-tracking.md)
+- [백테스트 거래 감사 ExecPlan](.agent/execplans/0012-backtest-trade-audit.md)
 - [종목 catalog·다종목 감시 specification](SPEC-instrument-catalog-multi-tracking.md)
 - [종목 catalog·다종목 감시 ExecPlan](.agent/execplans/0009-instrument-catalog-multi-tracking.md)
 - [저장소 작업 규칙](AGENTS.md)

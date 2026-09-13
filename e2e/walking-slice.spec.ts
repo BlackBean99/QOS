@@ -152,9 +152,10 @@ function strategyV3BacktestResult(strategy: Record<string, unknown>) {
     dataPolicy: {
       source: "TOSS OpenAPI adjusted candles",
       adjustedPrices: true,
+      corporateActions: "TOSS adjusted=true",
+      missingCandles: "SKIP_WITH_WARNING",
       marketTimeZone: instrument.timezone,
-      sessionOpen: "09:30",
-      sessionClose: "16:00",
+      session: "09:30-16:00",
     },
     metrics: {
       startingCapital: 100_000,
@@ -174,23 +175,27 @@ function strategyV3BacktestResult(strategy: Record<string, unknown>) {
       payoffRatio: null,
       averageRMultiple: 2,
       numberOfTrades: 1,
-      averageHoldingBars: 30,
+      averageHoldingPeriodBars: 30,
       maximumConsecutiveWins: 1,
       maximumConsecutiveLosses: 0,
       exposurePercent: 16.7,
-      turnover: 2,
+      turnoverPercent: 2,
       commissionCost: 12,
       slippageCost: 18,
     },
     trades: [
       {
+        status: "CLOSED",
         side: "LONG",
         entrySignalAt: series[79].timestamp,
         entryAt: entry.timestamp,
         entryPrice: entry.close,
+        entryRawPrice: entry.close + 0.05,
+        entryFee: 4,
+        entrySlippageCost: 6,
+        entryReason: "ENTRY_RULE_CHAIN",
         entryTrace: trace,
-        initialQuantity: 10,
-        remainingQuantity: 0,
+        positionSize: 10,
         initialStop: entry.close - 2,
         stopPath: [
           { at: entry.timestamp, value: entry.close - 2, reason: "ATR_STOP" },
@@ -200,15 +205,18 @@ function strategyV3BacktestResult(strategy: Record<string, unknown>) {
           {
             at: exit.timestamp,
             rawPrice: exit.close,
-            fillPrice: exit.close - 0.05,
+            price: exit.close - 0.05,
             quantity: 10,
-            quantityPercent: 100,
             reason: "RISK_REWARD",
-            priority: 30,
+            ruleId: "RISK_REWARD",
             fee: 12,
             slippageCost: 18,
+            entryCostAllocation: 10,
             grossPnl: 350,
             netPnl: 320,
+            returnPercent: 3.2,
+            cumulativeNetPnl: 320,
+            remainingQuantity: 0,
           },
         ],
         exitAt: exit.timestamp,
@@ -221,7 +229,7 @@ function strategyV3BacktestResult(strategy: Record<string, unknown>) {
         returnPercent: 3.2,
         rMultiple: 2,
         holdingBars: 30,
-        holdingMilliseconds: 30 * 300_000,
+        holdingMinutes: 150,
         mfePercent: 4.1,
         maePercent: -1.1,
       },
@@ -231,6 +239,55 @@ function strategyV3BacktestResult(strategy: Record<string, unknown>) {
       equity: 100_000 + index * 18,
       drawdownPercent: index % 20 === 0 ? -1 : 0,
     })),
+    events: [
+      {
+        sequence: 1,
+        type: "ENTRY_SIGNAL",
+        at: series[79].timestamp,
+        reason: "ENTRY_RULE_CHAIN",
+        trace,
+      },
+      {
+        sequence: 2,
+        type: "ENTRY_FILL",
+        at: entry.timestamp,
+        signalAt: series[79].timestamp,
+        tradeIndex: 0,
+        price: entry.close,
+        rawPrice: entry.close + 0.05,
+        quantity: 10,
+        remainingQuantity: 10,
+        reason: "ENTRY_RULE_CHAIN",
+        trace,
+      },
+      {
+        sequence: 3,
+        type: "EXIT_FILL",
+        at: exit.timestamp,
+        tradeIndex: 0,
+        price: exit.close - 0.05,
+        rawPrice: exit.close,
+        quantity: 10,
+        remainingQuantity: 0,
+        reason: "RISK_REWARD",
+        netPnl: 320,
+        returnPercent: 3.2,
+      },
+    ],
+    diagnostics: {
+      evaluatedBars: 150,
+      warmupBars: 20,
+      firstReadyAt: series[20].timestamp,
+      entryPasses: 1,
+      filterPasses: 150,
+      combinedSignals: 1,
+      entryFills: 1,
+      exitFills: 1,
+      closedTrades: 1,
+      rejectedSignals: 0,
+      noTradeReason: null,
+      conditionStats: [],
+    },
     assumptions: ["Bar T close signal → Bar T+1 open fill", "Conservative intrabar policy"],
     limitations: ["Historical constituent and delisted-universe coverage is not guaranteed."],
   };
@@ -414,6 +471,7 @@ async function installMocks(page: Page) {
         methodology: {
           catalogVersion: "strategy-v3-entry-43",
           candidatesEvaluated: 43,
+          candidatesExcluded: 0,
           ranking: "TOTAL_RETURN_DESC",
           baselineExit: "ATR 2x stop + 2R target",
           execution: "bar close signal → next bar open",
@@ -440,6 +498,9 @@ async function installMocks(page: Page) {
             presetId: "ema-crossover",
             presetName: "EMA / SMA Crossover",
             category: "TREND",
+            strategy: createPresetStrategyV3("ema-crossover", instrument.instrumentId, {
+              timeframe,
+            }),
             metrics: { ...metrics, totalReturnPercent: 12.2 },
           },
         ],
@@ -1064,16 +1125,25 @@ test("builds a multi-family Strategy v3 rule chain and explains its paper result
   await builder.getByRole("button", { name: "백테스트", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "검증 결과" })).toBeVisible();
-  await page.locator(".engine-results details").first().locator("summary").click();
+  await expect(page.getByText("매수·매도 실행 로그 · 3 events")).toBeVisible();
+  await expect(page.getByText("BUY 신호", { exact: true })).toBeVisible();
+  await expect(page.getByText("SELL 체결", { exact: true })).toBeVisible();
+  await page.locator(".trade-card").first().locator("summary").click();
+  await expect(page.getByText("실제 체결 손익")).toBeVisible();
+  await expect(page.getByText("원시 가격 손익", { exact: true })).toBeVisible();
   await expect(page.getByText("OBV breakout", { exact: true })).toBeVisible();
   await expect(page.getByText(/Strategy v3 BUY\/SELL 2개/)).toBeVisible();
   await expect(page.getByText("Conservative intrabar policy")).toBeVisible();
   expect(
     (await new AxeBuilder({ page }).include("#strategy-builder").analyze()).violations,
   ).toEqual([]);
+  expect((await new AxeBuilder({ page }).include(".engine-results").analyze()).violations).toEqual(
+    [],
+  );
   const overflow = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>("#strategy-builder *")]
       .filter((element) => {
+        if (element.closest(".trade-table-scroll")) return false;
         const bounds = element.getBoundingClientRect();
         return bounds.right > window.innerWidth + 1 || bounds.left < -1;
       })
@@ -1086,6 +1156,85 @@ test("builds a multi-family Strategy v3 rule chain and explains its paper result
       .slice(0, 10),
   );
   expect(overflow).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+
+test("explains a zero-trade result instead of presenting it as a zero-percent trade", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-1440", "zero-trade diagnostic runs once");
+  await page.unroute("**/api/strategy-engine/backtests");
+  await page.route("**/api/strategy-engine/backtests", async (route) => {
+    const request = route.request().postDataJSON() as {
+      strategies: Array<Record<string, unknown>>;
+    };
+    const result = strategyV3BacktestResult(request.strategies[0]);
+    await route.fulfill({
+      json: {
+        kind: "single",
+        result: {
+          ...result,
+          trades: [],
+          events: [],
+          metrics: {
+            ...result.metrics,
+            endingEquity: result.metrics.startingCapital,
+            totalReturnPercent: 0,
+            numberOfTrades: 0,
+            commissionCost: 0,
+            slippageCost: 0,
+          },
+          diagnostics: {
+            evaluatedBars: 180,
+            warmupBars: 20,
+            firstReadyAt: result.period.start,
+            entryPasses: 0,
+            filterPasses: 180,
+            combinedSignals: 0,
+            entryFills: 0,
+            exitFills: 0,
+            closedTrades: 0,
+            rejectedSignals: 0,
+            noTradeReason: "NO_ENTRY_MATCH",
+            conditionStats: [
+              {
+                scope: "ENTRY",
+                ruleId: "never-crossed",
+                label: "Price never crossed",
+                operator: "CROSS_ABOVE",
+                evaluated: 180,
+                passed: 0,
+                failed: 160,
+                warmup: 20,
+                lastAt: result.period.end,
+                lastStatus: "FAIL",
+              },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  await page.goto("/");
+  await selectInstrument(page);
+  await startV3Preset(page, "EMA / SMA Crossover", "EMA / SMA Crossover");
+  await page.getByRole("button", { name: "백테스트", exact: true }).click();
+
+  const results = page.locator(".engine-results");
+  await expect(results.getByText("0% 수익이 아니라, 체결된 거래가 없습니다")).toBeVisible();
+  await expect(results.getByText("Entry Rule Chain을 모두 통과한 봉이 없었습니다.")).toBeVisible();
+  await expect(
+    results.locator(".engine-metrics div").filter({ hasText: "총 수익률" }),
+  ).toContainText("거래 없음");
+  await expect(results.getByRole("table", { name: "조건별 판정 집계" })).toContainText(
+    "Price never crossed",
+  );
+  expect((await new AxeBuilder({ page }).include(".engine-results").analyze()).violations).toEqual(
+    [],
+  );
 });
 
 test("starts the completed 15m open and Session VWAP cross preset", async ({ page }) => {
@@ -1118,7 +1267,7 @@ test("recommends all-entry winner, accepts a custom period and saves tracking ON
   await expect(panel.getByRole("heading", { name: "Rolling VWAP Breakout" })).toBeVisible();
   await expect(panel.getByText(/43개 Entry 후보/)).toBeVisible();
   await panel.getByLabel("분석 시작일").fill("2026-07-01");
-  await expect(panel.getByRole("button", { name: "추천 전략 적용" })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "선택 전략 적용" })).toHaveCount(0);
   await panel.getByLabel("분석 종료일").fill("2026-08-31");
   const customRequest = page.waitForRequest("**/api/strategy-recommendations");
   await panel.getByRole("button", { name: "이 기간으로 다시 분석" }).click();
@@ -1127,12 +1276,14 @@ test("recommends all-entry winner, accepts a custom period and saves tracking ON
   });
   await expect(panel.getByText(/2026-07-01.*2026-08-31.*직접 설정/)).toBeVisible();
 
-  await panel.getByRole("button", { name: "추천 전략 적용" }).click();
-  await expect(page.getByLabel("전략 이름")).toHaveValue("Rolling VWAP Breakout");
+  await panel.getByRole("button", { name: /02.*EMA \/ SMA Crossover/ }).click();
+  await expect(panel.getByRole("heading", { name: "EMA / SMA Crossover" })).toBeVisible();
+  await panel.getByRole("button", { name: "선택 전략 적용" }).click();
+  await expect(page.getByLabel("전략 이름")).toHaveValue("EMA / SMA Crossover");
   await panel.getByRole("button", { name: "저장하고 트래킹 ON" }).click();
   await expect(panel.getByRole("status")).toContainText("트래킹 ON");
   await expect(
-    page.getByRole("button", { name: /추천.*Rolling VWAP Breakout.*엔비디아/ }),
+    page.getByRole("button", { name: /추천.*EMA \/ SMA Crossover.*엔비디아/ }),
   ).toBeVisible();
   expect(
     (await new AxeBuilder({ page }).include("#strategy-recommendation").analyze()).violations,

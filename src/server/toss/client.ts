@@ -187,7 +187,9 @@ export class TossClient {
   async #get(path: string, options: { maxAttempts?: number } = {}): Promise<unknown> {
     const maxAttempts = Math.max(1, Math.min(3, options.maxAttempts ?? 3));
     let lastError: TossProviderError | null = null;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    let attempt = 0;
+    let refreshedUnauthorizedToken = false;
+    while (attempt < maxAttempts) {
       try {
         const token = await this.getAccessToken();
         const response = await this.#fetchWithTimeout(`${this.#baseUrl}${path}`, {
@@ -198,8 +200,9 @@ export class TossClient {
 
         const code = providerCode(response.status);
         const error = new TossProviderError(code, safeMessage(code), response.status);
-        if (response.status === 401 && attempt === 0 && maxAttempts > 1) {
+        if (response.status === 401 && !refreshedUnauthorizedToken) {
           this.invalidateToken();
+          refreshedUnauthorizedToken = true;
           lastError = error;
           continue;
         }
@@ -211,6 +214,7 @@ export class TossClient {
             : Math.min(MAX_RETRY_DELAY_MS, 250 * 2 ** attempt);
           await this.#sleep(delay);
           lastError = error;
+          attempt += 1;
           continue;
         }
         throw error;
@@ -227,6 +231,7 @@ export class TossClient {
         ) {
           await this.#sleep(Math.min(MAX_RETRY_DELAY_MS, 250 * 2 ** attempt));
           lastError = normalized;
+          attempt += 1;
           continue;
         }
         throw normalized;

@@ -234,6 +234,10 @@ ATR, Z-score distance는 별도 parameter로 표현한다.
 
 Trade ledger는 entry/exit time·price·reason·trace, position size, gross/fee/slippage/net PnL,
 return, R multiple, holding, MFE/MAE와 모든 partial fill을 포함한다.
+Gross PnL은 provider raw price 기준이며 각 거래와 fill에서 `gross - fee - slippage = net`이
+성립한다. 결과는 signal→entry fill→partial/final exit의 순서가 있는 event log와 Entry/Filter
+condition별 PASS/FAIL/WARM-UP 집계를 포함한다. 체결이 없으면 0% 수익 거래로 표시하지 않고
+warm-up only, entry 불일치, filter 차단, 주문 미체결, 수량 0 또는 마지막 봉 신호를 구분한다.
 
 Metrics:
 
@@ -252,6 +256,9 @@ metrics를 반환한다.
 Chart는 selected strategy가 사용한 Entry/Exit indicator, entry/partial/exit marker와 stop/target/
 trailing guide를 표시한다. Marker와 trade row는 Decision Trace를 열어 각 rule 값과 pass/fail을
 보여 준다. 색만으로 BUY/SELL/pass/fail을 구분하지 않는다.
+추천 API와 Builder는 preset의 typed `supportedTimeframes`를 사용한다. Session VWAP·Opening Range·
+End Of Session은 intraday에서만, 15m open/Session VWAP 교차는 15m에서만 preset 의미를 보장한다.
+추천의 반환 상위 후보는 모두 사용자가 선택해 적용하거나 tracking할 수 있다.
 
 ## Natural Language Compiler
 

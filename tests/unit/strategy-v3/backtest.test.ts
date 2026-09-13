@@ -134,6 +134,83 @@ describe("Strategy v3 backtest engine", () => {
     expect(result.metrics.commissionCost).toBe(0);
   });
 
+  it("reconciles raw-price gross PnL, commission and slippage with net PnL", () => {
+    const costed = strategy();
+    costed.execution.commissionBps = 10;
+    costed.execution.slippageBps = 10;
+    costed.execution.spreadBps = 10;
+
+    const result = runBacktestV3(costed, candles, runtime);
+    const trade = result.trades[0];
+
+    expect(trade.entryRawPrice).toBe(100);
+    expect(trade.grossPnl - trade.fee - trade.slippageCost).toBeCloseTo(trade.netPnl, 6);
+    expect(
+      result.metrics.startingCapital + result.trades.reduce((sum, item) => sum + item.netPnl, 0),
+    ).toBeCloseTo(result.metrics.endingEquity, 3);
+    expect(trade.fills.reduce((sum, fill) => sum + fill.netPnl, 0)).toBeCloseTo(trade.netPnl, 4);
+  });
+
+  it("records signal-to-fill events and explains why no trade happened", () => {
+    const traded = runBacktestV3(strategy(), candles, runtime);
+    expect(traded.events.map((event) => event.type)).toEqual([
+      "ENTRY_SIGNAL",
+      "ENTRY_FILL",
+      "EXIT_FILL",
+    ]);
+    expect(traded.diagnostics).toMatchObject({
+      combinedSignals: 1,
+      entryFills: 1,
+      exitFills: 1,
+      closedTrades: 1,
+      noTradeReason: null,
+    });
+
+    const never = strategy();
+    never.entry.children[0] = {
+      type: "CONDITION",
+      id: "never",
+      left: { type: "INDICATOR", timeframe: "5m", offset: 0, kind: "PRICE", field: "close" },
+      operator: "CROSS_ABOVE",
+      right: { type: "CONSTANT", value: 10_000 },
+    };
+    const empty = runBacktestV3(never, candles, runtime);
+    expect(empty.metrics.numberOfTrades).toBe(0);
+    expect(empty.diagnostics).toMatchObject({
+      evaluatedBars: candles.length,
+      entryPasses: 0,
+      combinedSignals: 0,
+      entryFills: 0,
+      warmupBars: 1,
+      noTradeReason: "NO_ENTRY_MATCH",
+    });
+    expect(empty.diagnostics.conditionStats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "ENTRY", ruleId: "never", warmup: 1, passed: 0 }),
+      ]),
+    );
+  });
+
+  it("records same-bar-close position-size and non-market fill rejections", () => {
+    const zeroQuantity = strategy();
+    zeroQuantity.execution.fillAt = "SAME_BAR_CLOSE";
+    zeroQuantity.positionSizing = { kind: "FIXED_NOTIONAL", value: 1 };
+    const sizedOut = runBacktestV3(zeroQuantity, candles, runtime);
+
+    expect(sizedOut.trades).toHaveLength(0);
+    expect(sizedOut.diagnostics.noTradeReason).toBe("POSITION_SIZE_ZERO");
+    expect(sizedOut.events.map((event) => event.type)).toEqual(["ENTRY_SIGNAL", "ENTRY_REJECTED"]);
+
+    const untouchedLimit = strategy();
+    untouchedLimit.execution.fillAt = "SAME_BAR_CLOSE";
+    untouchedLimit.execution.order = { type: "LIMIT", offsetUnit: "PERCENT", offset: 10 };
+    const notFilled = runBacktestV3(untouchedLimit, candles, runtime);
+
+    expect(notFilled.trades).toHaveLength(0);
+    expect(notFilled.diagnostics.noTradeReason).toBe("ORDER_NOT_FILLED");
+    expect(notFilled.rejectedSignals[0]?.reason).toBe("ENTRY_ORDER_NOT_FILLED");
+  });
+
   it("compares the same entry with independent exits", () => {
     const first = strategy();
     const second = strategy("OPTIMISTIC");

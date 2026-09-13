@@ -71,7 +71,8 @@ repository root, PID 시작 시각, process cwd와 server/worker command가 모�
 ## Provider and failure boundaries
 
 - OAuth credential과 Telegram token은 environment에서만 읽는다. OAuth token은 timeout과
-  최대 2회 retry/bounded backoff를 갖는 single-flight cache다.
+  최대 2회 retry/bounded backoff를 갖는 single-flight cache다. provider 401은 quota-sensitive
+  stock master도 cached token을 폐기하고 정확히 한 번 재인증하지만 429/5xx 내부 retry는 하지 않는다.
 - 종목 master는 `market + ACTIVE`만 요청해 TOSS가 반환하는 주식·ETF·ETN·REIT·우선주 등
   전체 security type을 보존한다. quota-sensitive endpoint 내부 retry는 끄고 시장 refresh를 1.1초
   간격으로 single-flight 직렬화하며 validated row를
@@ -82,8 +83,8 @@ repository root, PID 시작 시각, process cwd와 server/worker command가 모�
 - TOSS candle은 최대 200개 단위로 paging/dedupe해 오래된 순으로 정규화한다. 5분봉은 1분봉
   OHLCV를 로컬 집계한다.
 - backtest 기간은 종목 timezone의 inclusive date로 resolve하며 자동 기간은 분봉 30일/일봉 2년/
-  주봉 5년이다. recommendation은 한 dataset으로 43 Entry를 실행하고 bounded TTL/in-flight cache를
-  사용한다. 실제 candle 기간은 요청 기간과 별도로 반환한다.
+  주봉 5년이다. recommendation은 한 dataset으로 요청 timeframe과 호환되는 Entry만 실행하고 bounded
+  TTL/in-flight cache를 사용한다. 실제 candle 기간과 비호환 제외 수는 요청 기간과 별도로 반환한다.
 - realtime `trade:kr/us`는 full-replace subscription, ping과 reconnect를 처리한다. sequence가
   없으므로 REST candle이 authoritative하며 stream volume 합계를 사용하지 않는다.
 - 오류 log는 구조화하고 credential/token/chat id 같은 민감 필드를 redact한다.
@@ -126,6 +127,8 @@ repository root, PID 시작 시각, process cwd와 server/worker command가 모�
 - v3 position state가 initial/current stop, high/low since entry, remaining quantity, current R와
   fired exits를 소유한다. Exit priority, monotonic trailing, break-even, scale-out, commission,
   slippage, spread, tick과 intrabar policy는 versioned JSON이다.
+- v3 ledger의 gross PnL은 provider raw price 기준이며 commission과 raw↔execution slippage를 각각
+  빼서 net을 계산한다. result는 lifecycle event log와 condition 집계, 거래 없음 원인을 포함한다.
 - Higher timeframe은 거래소 session open 정렬 bucket에서 완료된 candle만 as-of projection하고,
   breakout·swing·Ichimoku source는 미래 봉을 참조하지 않는다.
 - 실제 종목은 strategy와 함께 immutable instrument snapshot을 저장해 ticker metadata 변경과
@@ -159,3 +162,4 @@ conservative execution은 ADR-0009를 따른다.
 Verified loopback lifecycle은 ADR-0010, 추천·기간·monitor cadence는 ADR-0011, persistent
 instrument catalog와 multi-target monitoring은 ADR-0012를 따른다.
 Monitor snapshot fallback, 15분 VWAP open 교차와 paper hedge state는 ADR-0013을 따른다.
+백테스트 회계·진단·preset timeframe 호환성과 TOSS 401 복구는 ADR-0014를 따른다.

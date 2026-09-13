@@ -17,6 +17,7 @@
 - [ADR-0011: Historical all-entry recommendation and efficient tracking](ADR-0011-historical-recommendation-and-efficient-tracking.md)
 - [ADR-0012: Persistent instrument catalog and multi-target monitoring](ADR-0012-persistent-instrument-catalog-and-multi-target-monitoring.md)
 - [ADR-0013: Monitor snapshot fallback and explicit paper hedge state](ADR-0013-monitor-snapshot-and-paper-hedge-state.md)
+- [ADR-0014: Backtest accounting, diagnostics and preset timeframe compatibility](ADR-0014-backtest-accounting-diagnostics-and-preset-compatibility.md)
 
 ## Naming
 

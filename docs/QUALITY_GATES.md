@@ -67,7 +67,9 @@ release 증거를 대신하지 않는다. `deploy:local:stop`은 저장소/PID �
 - LLM compiler: local multi-entry composition, missing key/provider failure/invalid output/strict valid
   output, allowlisted preset intent, prompt size와 `store: false`
 - recommendation/window: 현재 전체 Entry 평가 수, deterministic return/MDD/Sharpe tie-break, default/custom
-  timezone 기간, 실제 candle 범위, TTL/in-flight cache와 invalid intraday window
+  timezone 기간, preset 지원 timeframe 제외, 후보 선택, 실제 candle 범위, TTL/in-flight cache와 invalid intraday window
+- backtest trade audit: raw gross−commission−slippage=net과 ending equity 대사, 부분 fill 비용 배분,
+  signal/fill 순서, 거래 없음 원인·condition 집계, 작은 비영 수익률 표시와 모바일 표 keyboard scroll
 - monitor cost: 같은 instrument/timeframe 복수 전략의 provider call count, after-session no-refetch,
   desired-state refresh cadence, provider failure backoff, request/cache telemetry, singleton lease와
   server+worker lifecycle

@@ -33,7 +33,11 @@ BUY/SELL을 차트에서 검토한 뒤 실시간 Telegram 알림으로 이어갈
 - 저장 view에서 즉시 paper backtest를 실행하고 revision·engine·result snapshot 이력 조회/삭제
 - 저장 view에서 한 전략에 최대 50개 주식·ETF 대상을 검색·저장하고 종목별 ON/OFF와 사용자가
   지정한 inverse paper hedge를 관리
-- 종목 선택 시 43개 Entry 전체의 동일 기간/비용 historical ranking, 직접/자동 기간과 추천 적용
+- 43개 Entry catalog 중 선택 timeframe과 호환되는 후보의 동일 기간/비용 historical ranking,
+  직접/자동 기간과 추천 적용
+- 추천 상위 후보 직접 선택, preset 지원 timeframe 적용과 비호환 Session 전략의 일/주봉 비교 제외
+- 백테스트 신호→BUY fill→부분/최종 SELL event log, raw 손익·비용 대사, 거래별/누적 수익률과
+  거래 없음 원인·condition PASS/FAIL/WARM-UP 진단
 - 별도 monitor가 target별 모든 지원 timeframe의 완성 봉만 평가하고 target-scoped 영속 dedupe 뒤
   Telegram private chat으로 전송하며 primary/inverse paper leg를 재시작 뒤에도 보존
 - 15분봉 open과 Session VWAP 상·하향 교차를 같은 v3 Rule Chain의 Entry/Exit으로 제공하고,
@@ -47,12 +51,13 @@ BUY/SELL을 차트에서 검토한 뒤 실시간 Telegram 알림으로 이어갈
 
 1. 사용자가 한국/미국과 이름·티커를 선택해 TOSS 거래 가능 주식·ETF 등을 local catalog에서
    검색한다. 필요할 때만 catalog를 명시적으로 새로고침한다.
-2. 전체 Entry 추천과 실제 데이터 기간을 검토하고, 추천을 적용하거나 직접 검색형 preset에서
+2. timeframe 호환 Entry 추천과 실제 데이터 기간을 검토하고, 상위 후보를 직접 선택·적용하거나 검색형 preset에서
    진입·필터·청산을 Rule Chain에 계속 추가하거나 자연어
    v3 후보를 검토한다.
 3. KLineChart에서 실제 candle, 지표와 drawing을 조작한다.
 4. 전략·종목 snapshot·chart 설정을 JSON으로 저장하고 view/import/export/수정/삭제한다.
-5. 저장 view에서 paper backtest를 실행해 BUY/SELL marker와 동일 정보의 표를 검토하고,
+5. 저장 view에서 paper backtest를 실행해 BUY/SELL marker, 신호·체결 타임라인, 거래별 손익·비용과
+   동일 정보의 표를 검토하고,
    summary 이력과 full JSON snapshot을 다시 열거나 삭제한다.
 6. 저장 전략 하나에 여러 종목을 붙여 개별 ON/OFF하고 필요하면 inverse 상품을 명시적으로 고른 뒤
    Telegram tracking을 켠다. local release monitor가 변경을 60초 안에 반영한다.

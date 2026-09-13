@@ -124,13 +124,14 @@ function strategyV3Signals(result: BacktestResultV3): ChartSignal[] {
         reason: explanations(trade.entryTrace).join(" · "),
       },
     ];
-    if (trade.exitAt && trade.exitPrice !== undefined)
+    for (const fill of trade.fills) {
       signals.push({
         side: trade.side === "LONG" ? "SELL" : "BUY",
-        timestamp: trade.exitAt,
-        price: trade.exitPrice,
-        reason: trade.exitReason ?? "Strategy v3 exit",
+        timestamp: fill.at,
+        price: fill.price,
+        reason: `${fill.reason} · ${fill.netPnl >= 0 ? "+" : ""}${fill.netPnl.toLocaleString("ko-KR")} (${fill.returnPercent >= 0 ? "+" : ""}${fill.returnPercent.toFixed(2)}%) · 잔여 ${fill.remainingQuantity.toLocaleString("ko-KR")}`,
       });
+    }
     return signals;
   });
 }

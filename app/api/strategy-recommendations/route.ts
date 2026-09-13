@@ -11,7 +11,11 @@ import {
 } from "@/src/domain/backtest-window";
 import { runBacktestV3, type BacktestRuntimeOptionsV3 } from "@/src/domain/backtest-v3/engine";
 import { InstrumentSnapshotSchema, type InstrumentSnapshot } from "@/src/domain/stored-strategy";
-import { ENTRY_PRESETS_V3, createPresetStrategyV3 } from "@/src/domain/strategy-v3/catalog";
+import {
+  ENTRY_PRESETS_V3,
+  createPresetStrategyV3,
+  isPresetTimeframeSupportedV3,
+} from "@/src/domain/strategy-v3/catalog";
 import { StrategyTimeframeSchema, type StrategyTimeframe } from "@/src/domain/strategy-v3/schema";
 import type { Candle } from "@/src/fixtures/markets";
 import {
@@ -33,7 +37,7 @@ import { loadTossStrategyDataset } from "@/src/server/toss/datasets";
 
 export const runtime = "nodejs";
 
-const CATALOG_VERSION = "strategy-v3-entry-43";
+const CATALOG_VERSION = "strategy-v3-entry-43-timeframe-v2";
 
 const RequestSchema = z
   .object({
@@ -58,6 +62,7 @@ interface RecommendationPayload {
   methodology: {
     catalogVersion: string;
     candidatesEvaluated: number;
+    candidatesExcluded: number;
     ranking: "TOTAL_RETURN_DESC";
     baselineExit: string;
     execution: string;
@@ -171,7 +176,10 @@ export function createStrategyRecommendationHandler(
         if (candles.length < 2) {
           throw new BacktestWindowError("선택한 기간에 백테스트 완료 봉이 부족합니다.");
         }
-        const candidates = ENTRY_PRESETS_V3.map((preset) => {
+        const compatiblePresets = ENTRY_PRESETS_V3.filter((preset) =>
+          isPresetTimeframeSupportedV3(preset, parsed.data.timeframe),
+        );
+        const candidates = compatiblePresets.map((preset) => {
           const strategy = createPresetStrategyV3(preset.id, parsed.data.instrument.instrumentId, {
             timeframe: parsed.data.timeframe,
             side: "LONG",
@@ -188,7 +196,8 @@ export function createStrategyRecommendationHandler(
         return {
           methodology: {
             catalogVersion: CATALOG_VERSION,
-            candidatesEvaluated: ENTRY_PRESETS_V3.length,
+            candidatesEvaluated: compatiblePresets.length,
+            candidatesExcluded: ENTRY_PRESETS_V3.length - compatiblePresets.length,
             ranking: "TOTAL_RETURN_DESC" as const,
             baselineExit: "ATR 2x stop + 2R target",
             execution: "bar close signal → next bar open, commission/slippage/spread included",
@@ -212,7 +221,8 @@ export function createStrategyRecommendationHandler(
         requestId: id,
         instrumentId: parsed.data.instrument.instrumentId,
         timeframe: parsed.data.timeframe,
-        candidates: ENTRY_PRESETS_V3.length,
+        candidates: result.value.methodology.candidatesEvaluated,
+        excludedCandidates: result.value.methodology.candidatesExcluded,
         cache: result.cache,
         durationMs: Math.round(performance.now() - startedAt),
       });

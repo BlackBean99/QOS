@@ -6,6 +6,7 @@ import {
   EXIT_PRESETS_V3,
   FILTER_PRESETS_V3,
   createPresetStrategyV3,
+  isPresetTimeframeSupportedV3,
 } from "./catalog";
 import {
   StrategyDefinitionV3Schema,
@@ -303,6 +304,22 @@ function composeStrategyV3(
 ): StrategyDefinitionV3 {
   const timeframe = options.timeframe ?? selection.timeframe ?? undefined;
   const side = options.side ?? selection.side ?? undefined;
+  const selectedPresets = [
+    ...selection.entryPresetIds.map((id) => ENTRY_PRESETS_V3.find((preset) => preset.id === id)!),
+    ...selection.filterPresetIds.map((id) => FILTER_PRESETS_V3.find((preset) => preset.id === id)),
+    ...selection.exitPresetIds.map((id) => EXIT_PRESETS_V3.find((preset) => preset.id === id)),
+  ].filter((preset) => preset !== undefined);
+  if (timeframe) {
+    const incompatible = selectedPresets.find(
+      (preset) => !isPresetTimeframeSupportedV3(preset, timeframe),
+    );
+    if (incompatible) {
+      throw new StrategyV3CompilerError(
+        "INVALID_MODEL_OUTPUT",
+        `${incompatible.name}은 ${timeframe}에서 사용할 수 없습니다. 지원 봉: ${incompatible.supportedTimeframes.join(", ")}`,
+      );
+    }
+  }
   const strategy = createPresetStrategyV3(selection.entryPresetIds[0], instrumentId, {
     ...(timeframe ? { timeframe } : {}),
     ...(side ? { side } : {}),

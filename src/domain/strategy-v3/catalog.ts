@@ -53,6 +53,7 @@ interface CatalogPresetBase {
   purpose: string;
   dataRequirements: string[];
   supportedSides: Array<"LONG" | "SHORT">;
+  supportedTimeframes: StrategyTimeframe[];
   recommendedRegimes: string[];
   parameters: PresetParameterMetadata[];
   keywords: string[];
@@ -152,33 +153,41 @@ const number = (
   step,
 });
 const sides = ["LONG", "SHORT"] as Array<"LONG" | "SHORT">;
+const allTimeframes: StrategyTimeframe[] = ["1m", "5m", "15m", "30m", "60m", "4h", "1d", "1w"];
+const intradayTimeframes: StrategyTimeframe[] = ["1m", "5m", "15m", "30m", "60m", "4h"];
 
 const entry = (
-  preset: Omit<RuleCatalogPreset, "role" | "supportedSides"> & {
+  preset: Omit<RuleCatalogPreset, "role" | "supportedSides" | "supportedTimeframes"> & {
     supportedSides?: Array<"LONG" | "SHORT">;
+    supportedTimeframes?: StrategyTimeframe[];
   },
 ): RuleCatalogPreset => ({
   ...preset,
   role: "ENTRY",
   supportedSides: preset.supportedSides ?? sides,
+  supportedTimeframes: preset.supportedTimeframes ?? allTimeframes,
 });
 const filter = (
-  preset: Omit<RuleCatalogPreset, "role" | "supportedSides"> & {
+  preset: Omit<RuleCatalogPreset, "role" | "supportedSides" | "supportedTimeframes"> & {
     supportedSides?: Array<"LONG" | "SHORT">;
+    supportedTimeframes?: StrategyTimeframe[];
   },
 ): RuleCatalogPreset => ({
   ...preset,
   role: "FILTER",
   supportedSides: preset.supportedSides ?? sides,
+  supportedTimeframes: preset.supportedTimeframes ?? allTimeframes,
 });
 const exit = (
-  preset: Omit<ExitCatalogPreset, "role" | "supportedSides"> & {
+  preset: Omit<ExitCatalogPreset, "role" | "supportedSides" | "supportedTimeframes"> & {
     supportedSides?: Array<"LONG" | "SHORT">;
+    supportedTimeframes?: StrategyTimeframe[];
   },
 ): ExitCatalogPreset => ({
   ...preset,
   role: "EXIT",
   supportedSides: preset.supportedSides ?? sides,
+  supportedTimeframes: preset.supportedTimeframes ?? allTimeframes,
 });
 
 const fastSlow = [
@@ -631,6 +640,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "session-vwap-breakout",
+    supportedTimeframes: intradayTimeframes,
     name: "Session VWAP Breakout",
     category: "VWAP",
     description: "현재 정규 세션 VWAP을 가격이 교차 돌파합니다.",
@@ -651,6 +661,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "session-vwap-open-cross",
+    supportedTimeframes: ["15m"],
     name: "15m Open × Session VWAP Cross",
     category: "VWAP",
     description: "완료된 15분봉 시가가 정규 세션 VWAP 위로 교차할 때 진입합니다.",
@@ -681,6 +692,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "vwap-reclaim",
+    supportedTimeframes: intradayTimeframes,
     name: "VWAP Reclaim",
     category: "VWAP",
     description: "VWAP 반대편에서 다시 유리한 쪽 종가로 복귀합니다.",
@@ -701,6 +713,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "vwap-pullback",
+    supportedTimeframes: intradayTimeframes,
     name: "VWAP Pullback",
     category: "VWAP",
     description: "VWAP 추세 방향, touch와 재회복을 함께 요구합니다.",
@@ -736,6 +749,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "vwap-mean-reversion",
+    supportedTimeframes: intradayTimeframes,
     name: "VWAP Mean Reversion",
     category: "VWAP",
     description: "VWAP 이격의 percentage, ATR 또는 Z-score를 사용합니다.",
@@ -816,6 +830,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "opening-range-breakout",
+    supportedTimeframes: intradayTimeframes,
     name: "Opening Range Breakout",
     category: "BREAKOUT",
     description: "거래소 session open 기준 opening range를 돌파합니다.",
@@ -922,6 +937,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "multi-timeframe-trend-entry",
+    supportedTimeframes: intradayTimeframes,
     name: "Multi-Timeframe Trend Entry",
     category: "TREND",
     description: "완료된 Daily 추세와 primary timeframe 진입 신호를 결합합니다.",
@@ -1107,6 +1123,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "vwap-breakdown-entry",
+    supportedTimeframes: intradayTimeframes,
     name: "VWAP Breakdown",
     category: "VWAP",
     description: "가격이 명시한 VWAP 아래로 교차하는 breakdown Rule입니다.",
@@ -1227,6 +1244,7 @@ export const ENTRY_PRESETS_V3: RuleCatalogPreset[] = [
   }),
   entry({
     id: "vwap-deviation-band-reentry",
+    supportedTimeframes: intradayTimeframes,
     name: "VWAP Standard Deviation Band",
     category: "VWAP",
     description: "VWAP ±Nσ 바깥에서 band 안으로 재진입하는 Rule입니다.",
@@ -1974,6 +1992,7 @@ export const EXIT_PRESETS_V3: ExitCatalogPreset[] = [
   }),
   exit({
     id: "vwap-breakdown-exit",
+    supportedTimeframes: intradayTimeframes,
     name: "VWAP Breakdown",
     category: "VWAP",
     description: "가격이 선택 VWAP 반대편으로 교차하면 청산합니다.",
@@ -2000,6 +2019,7 @@ export const EXIT_PRESETS_V3: ExitCatalogPreset[] = [
   }),
   exit({
     id: "session-vwap-open-breakdown-exit",
+    supportedTimeframes: ["15m"],
     name: "15m Open × Session VWAP Breakdown",
     category: "VWAP",
     description: "완료된 15분봉 시가가 Session VWAP 아래로 교차하면 청산합니다.",
@@ -2148,6 +2168,7 @@ export const EXIT_PRESETS_V3: ExitCatalogPreset[] = [
   }),
   exit({
     id: "end-of-session",
+    supportedTimeframes: intradayTimeframes,
     name: "End Of Session",
     category: "EXIT",
     description: "정규 세션 종료 전 청산해 overnight를 금지합니다.",
@@ -2196,6 +2217,13 @@ export const STRATEGY_CATALOG_V3: StrategyCatalogPreset[] = [
   ...FILTER_PRESETS_V3,
   ...EXIT_PRESETS_V3,
 ];
+
+export function isPresetTimeframeSupportedV3(
+  preset: StrategyCatalogPreset,
+  timeframe: StrategyTimeframe,
+): boolean {
+  return preset.supportedTimeframes.includes(timeframe);
+}
 
 export function searchStrategyCatalogV3(
   query: string,
@@ -2259,6 +2287,9 @@ export function createPresetStrategyV3(
   };
   if (!preset.supportedSides.includes(context.side)) {
     throw new Error(`${preset.name} does not support ${context.side}.`);
+  }
+  if (!isPresetTimeframeSupportedV3(preset, context.timeframe)) {
+    throw new Error(`${preset.name} does not support ${context.timeframe}.`);
   }
   const market = instrumentId.slice(0, instrumentId.indexOf(":")) as StrategyDefinitionV3["market"];
   getMarketDefaults(market);

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createStrategyRecommendationHandler } from "@/app/api/strategy-recommendations/route";
-import { ENTRY_PRESETS_V3 } from "@/src/domain/strategy-v3/catalog";
+import { ENTRY_PRESETS_V3, isPresetTimeframeSupportedV3 } from "@/src/domain/strategy-v3/catalog";
 import type { BacktestMetricsV3 } from "@/src/domain/backtest-v3/engine";
 
 const instrument = {
@@ -53,7 +53,7 @@ function metrics(totalReturnPercent: number): BacktestMetricsV3 {
 }
 
 describe("strategy recommendation route", () => {
-  it("evaluates every entry preset once, ranks the top return and caches the result", async () => {
+  it("evaluates compatible entry presets once, ranks the top return and caches the result", async () => {
     const loader = vi.fn(async () => ({
       candles,
       runtime: {
@@ -92,7 +92,13 @@ describe("strategy recommendation route", () => {
     const secondPayload = await second.json();
 
     expect(first.status).toBe(200);
-    expect(firstPayload.methodology.candidatesEvaluated).toBe(43);
+    const compatible = ENTRY_PRESETS_V3.filter((preset) =>
+      isPresetTimeframeSupportedV3(preset, "1d"),
+    );
+    expect(firstPayload.methodology.candidatesEvaluated).toBe(compatible.length);
+    expect(firstPayload.methodology.candidatesExcluded).toBe(
+      ENTRY_PRESETS_V3.length - compatible.length,
+    );
     expect(firstPayload.recommendation).toMatchObject({
       presetId: "rolling-vwap-breakout",
       metrics: { totalReturnPercent: 42 },
@@ -104,6 +110,7 @@ describe("strategy recommendation route", () => {
     expect(firstPayload.cache).toBe("MISS");
     expect(secondPayload.cache).toBe("HIT");
     expect(loader).toHaveBeenCalledTimes(1);
-    expect(evaluate).toHaveBeenCalledTimes(ENTRY_PRESETS_V3.length);
+    expect(evaluate).toHaveBeenCalledTimes(compatible.length);
+    expect(evaluate.mock.calls.some((call) => call[3].id === "session-vwap-breakout")).toBe(false);
   });
 });

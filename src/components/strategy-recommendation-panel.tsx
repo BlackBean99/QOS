@@ -41,6 +41,7 @@ const RecommendationResponseSchema = z
       .object({
         catalogVersion: z.string(),
         candidatesEvaluated: z.number().int().positive(),
+        candidatesExcluded: z.number().int().nonnegative(),
         ranking: z.literal("TOTAL_RETURN_DESC"),
         baselineExit: z.string(),
         execution: z.string(),
@@ -85,7 +86,8 @@ interface Props {
 const timeframes: StrategyTimeframe[] = ["1m", "5m", "15m", "30m", "60m", "4h", "1d", "1w"];
 
 function percent(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+  const digits = value !== 0 && Math.abs(value) < 0.01 ? 4 : 2;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 }
 
 function drawdown(value: number): string {
@@ -105,11 +107,13 @@ export function StrategyRecommendationPanel({
   const [busy, setBusy] = useState(false);
   const [trackingBusy, setTrackingBusy] = useState(false);
   const [tracked, setTracked] = useState(false);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const requestSequence = useRef(0);
 
   function invalidateResult(message = "조건이 변경되었습니다. 다시 분석해 주세요.") {
     requestSequence.current += 1;
     setResult(null);
+    setSelectedPresetId(null);
     setTracked(false);
     setStatus(message);
   }
@@ -147,6 +151,7 @@ export function StrategyRecommendationPanel({
         if (!parsed.success) throw new Error("전략 추천 응답을 검증하지 못했습니다.");
         if (requestId !== requestSequence.current) return;
         setResult(parsed.data);
+        setSelectedPresetId(parsed.data.recommendation?.presetId ?? null);
         setTracked(false);
         setStatus(
           parsed.data.recommendation
@@ -188,7 +193,10 @@ export function StrategyRecommendationPanel({
     void requestRecommendation(timeframe, backtestWindow);
   }
 
-  const winner = result?.recommendation ?? null;
+  const selectedCandidate =
+    result?.rankings.find((candidate) => candidate.presetId === selectedPresetId) ??
+    result?.recommendation ??
+    null;
   return (
     <section
       className="strategy-recommendation"
@@ -255,11 +263,14 @@ export function StrategyRecommendationPanel({
         31일까지 지원합니다.
       </p>
 
-      {winner ? (
+      {selectedCandidate ? (
         <div className="recommendation-result">
           <article className="recommendation-winner">
-            <span>HISTORICAL RANK 01 · {winner.category}</span>
-            <h3>{winner.presetName}</h3>
+            <span>
+              SELECTED RANK {String(selectedCandidate.rank).padStart(2, "0")} ·{" "}
+              {selectedCandidate.category}
+            </span>
+            <h3>{selectedCandidate.presetName}</h3>
             <p>{result?.window.label}</p>
             <p>
               실제 데이터 {result?.dataPeriod.bars.toLocaleString("ko-KR")}봉 ·{" "}
@@ -269,24 +280,24 @@ export function StrategyRecommendationPanel({
             <dl>
               <div>
                 <dt>총수익률</dt>
-                <dd>{percent(winner.metrics.totalReturnPercent)}</dd>
+                <dd>{percent(selectedCandidate.metrics.totalReturnPercent)}</dd>
               </div>
               <div>
                 <dt>MDD</dt>
-                <dd>{drawdown(winner.metrics.maximumDrawdownPercent)}</dd>
+                <dd>{drawdown(selectedCandidate.metrics.maximumDrawdownPercent)}</dd>
               </div>
               <div>
                 <dt>Sharpe</dt>
-                <dd>{winner.metrics.sharpeRatio.toFixed(2)}</dd>
+                <dd>{selectedCandidate.metrics.sharpeRatio.toFixed(2)}</dd>
               </div>
               <div>
                 <dt>거래</dt>
-                <dd>{winner.metrics.numberOfTrades}회</dd>
+                <dd>{selectedCandidate.metrics.numberOfTrades}회</dd>
               </div>
             </dl>
             <div className="recommendation-actions">
-              <button type="button" onClick={() => onApply(winner)}>
-                추천 전략 적용
+              <button type="button" onClick={() => onApply(selectedCandidate)}>
+                선택 전략 적용
               </button>
               <button
                 type="button"
@@ -295,7 +306,7 @@ export function StrategyRecommendationPanel({
                 onClick={() => {
                   setTrackingBusy(true);
                   setStatus("추천 전략을 저장하고 paper tracking을 켜는 중입니다.");
-                  void onTrack(winner, result!.window)
+                  void onTrack(selectedCandidate, result!.window)
                     .then(() => {
                       setTracked(true);
                       setStatus("저장 완료 · 트래킹 ON · local monitor가 60초 안에 반영합니다.");
@@ -314,20 +325,32 @@ export function StrategyRecommendationPanel({
           </article>
 
           <div className="recommendation-ranking">
-            <h3>상위 후보</h3>
+            <h3>추천 후보 선택</h3>
             <ol>
               {result?.rankings.map((candidate) => (
                 <li key={candidate.presetId}>
-                  <b>{String(candidate.rank).padStart(2, "0")}</b>
-                  <span>
-                    <strong>{candidate.presetName}</strong>
-                    <small>
-                      {candidate.category} · {candidate.metrics.numberOfTrades} trades · MDD{" "}
-                      {drawdown(candidate.metrics.maximumDrawdownPercent)} · Sharpe{" "}
-                      {candidate.metrics.sharpeRatio.toFixed(2)}
-                    </small>
-                  </span>
-                  <em>{percent(candidate.metrics.totalReturnPercent)}</em>
+                  <button
+                    type="button"
+                    aria-pressed={candidate.presetId === selectedCandidate.presetId}
+                    onClick={() => {
+                      setSelectedPresetId(candidate.presetId);
+                      setTracked(false);
+                      setStatus(
+                        `${candidate.presetName}을 선택했습니다. 적용하거나 저장 후 트래킹할 수 있습니다.`,
+                      );
+                    }}
+                  >
+                    <b>{String(candidate.rank).padStart(2, "0")}</b>
+                    <span>
+                      <strong>{candidate.presetName}</strong>
+                      <small>
+                        {candidate.category} · {candidate.metrics.numberOfTrades} trades · MDD{" "}
+                        {drawdown(candidate.metrics.maximumDrawdownPercent)} · Sharpe{" "}
+                        {candidate.metrics.sharpeRatio.toFixed(2)}
+                      </small>
+                    </span>
+                    <em>{percent(candidate.metrics.totalReturnPercent)}</em>
+                  </button>
                 </li>
               ))}
             </ol>
@@ -346,6 +369,7 @@ export function StrategyRecommendationPanel({
             ))}
           </ul>
           <p>
+            timeframe 비호환 {result.methodology.candidatesExcluded}개 제외 ·{" "}
             {result.methodology.execution} · {result.methodology.baselineExit}
           </p>
         </div>

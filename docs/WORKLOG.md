@@ -3,6 +3,34 @@
 검토 가능한 사실과 결과만 기록한다. 상세 계획은 `.agent/execplans/`, 장기 결정은
 `docs/decisions/`에 둔다.
 
+## 2026-09-13 — Backtest trade audit, selectable recommendations and TOSS reauthentication
+
+- Strategy v3 손익을 provider raw entry/exit 가격의 gross에서 commission과 raw↔execution
+  slippage/spread를 각각 차감하는 회계로 정리했다. Entry 비용은 개설 시 equity에 반영하고 부분
+  청산 fill에 비례 배분하며 마지막 fill이 잔여를 흡수한다. 거래/fill net 합과 ending equity 대사를
+  deterministic regression으로 고정했다.
+- 결과에 ENTRY signal/fill/reject, EXIT signal/partial/final fill과 end-of-data 청산 event를 순서대로
+  저장한다. Entry+Filter 전체 trace, 평가/warm-up/통과/거절 수와 condition별 PASS/FAIL/WARM-UP을
+  집계하고 체결 없음은 원인 코드로 구분한다. UI는 이를 0.00% 거래로 표시하지 않고 BUY→SELL
+  타임라인, 거래·fill별 수익률, raw 손익·수수료·슬리피지·누적 순손익으로 보여 준다.
+- catalog에 typed `supportedTimeframes`를 추가했다. Session VWAP/Opening Range/해당 MTF는 intraday,
+  15분 open×Session VWAP은 15m로 제한하고 추천 API는 비호환 후보를 실행하지 않는다. 상위 추천
+  후보는 button으로 직접 선택해 적용하거나 저장+tracking할 수 있다.
+- 회전된 TOSS 자격 증명은 값을 출력·커밋하지 않고 server-only `.env.local`에서 읽는다. quota-sensitive
+  stock master도 cached token의 401만 정확히 한 번 새 token으로 복구하고 429/5xx 무재시도 정책은
+  유지한다.
+- focused Vitest 61개와 선택·거래 감사 browser flow를 먼저 통과시킨 뒤 clean source에서
+  format/lint/typecheck, 44 Vitest file·255 test, production build와 production audit 0 vulnerabilities를
+  통과했다. 전체 Playwright는 360/390/768/1440에서 84 pass·viewport 전용 12 skip·실패 0이며,
+  zero-trade UI, axe heading/keyboard scroll과 global overflow 회귀를 포함한다.
+- 실 TOSS KOSPI master 2,474개에서 삼성전자 005930을 확인했다. local production HTTP에서 종목 검색
+  cache HIT, 일봉 추천 34개 평가·비호환 9개 제외, 실제 구간 백테스트 2 trades·6 events와 순손익 대사
+  차이 0.00005 이내를 확인했다. 배포된 Next와 monitor는 healthy/connected이며 server credential 값은
+  어느 출력·문서·commit에도 기록하지 않았다.
+- 최종 자체 리뷰에서 `SAME_BAR_CLOSE`의 수량 0/비시장 주문 거절 event 누락과 숏 거래의 고정
+  BUY→SELL 표기를 발견했다. 진입 체결 경로를 통합하고 LONG/SHORT별 action을 표와 타임라인에
+  반영한 뒤 관련 unit test와 전체 gate를 다시 통과했다.
+
 ## 2026-09-13 — 15-minute VWAP Telegram monitor and explicit inverse paper hedge
 
 - Strategy v3에 `PRICE(open)`과 Session VWAP의 completed 15분봉 상향 Entry/하향 Exit preset을
