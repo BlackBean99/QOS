@@ -25,7 +25,7 @@
 | Production build         | `npm run build`                | Passed                             |
 | Production run           | `npm run start`                | v3 UI/catalog/monitor smoke passed |
 | Combined local gates     | `npm run verify`               | Passed for clean `f332dcc` source  |
-| Managed local deploy     | `npm run deploy:local`         | `f332dcc` loopback healthy         |
+| Managed local deploy     | `npm run deploy:local`         | `6810291` loopback healthy         |
 | Local deployment status  | `npm run deploy:local:status`  | Next + monitor healthy             |
 | Managed local stop       | `npm run deploy:local:stop`    | Owned process stop passed          |
 | Verified local release   | verify + E2E + deploy sequence | Full gates + loopback smoke passed |

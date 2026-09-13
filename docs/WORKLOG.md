@@ -36,6 +36,8 @@
 - 기능 commit `f332dcc`를 origin/main에 push했다. 같은 commit의 production build를
   `http://127.0.0.1:3000`에 다시 배포했으며 Next와 monitor status가 healthy인 것을 확인했다.
   monitor API는 connected·PRIMARY·2 strategies/2 targets·last error 없음으로 응답했다.
+- cold-start health 보완 commit `6810291`도 origin/main에 push하고 같은 executable commit을 다시
+  배포했다. 최종 local deployment status는 Next+monitor healthy다.
 
 ## 2026-09-13 — 15-minute VWAP Telegram monitor and explicit inverse paper hedge
 

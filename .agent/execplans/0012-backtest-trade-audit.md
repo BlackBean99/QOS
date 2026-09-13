@@ -91,5 +91,6 @@
   공통 체결 경로와 방향별 action 표기로 수정했다.
 - commit 기준 cold deploy에서 36개 provider page warm-up이 10초를 넘는 것을 확인해 monitor startup
   health window를 bounded 30초로 조정했다. 개별 요청 timeout과 실패 cleanup은 유지한다.
-- final local release는 `http://127.0.0.1:3000`, commit `f332dcc`, Next+monitor `healthy`다.
+- final executable local release는 `http://127.0.0.1:3000`, commit `6810291`, Next+monitor
+  `healthy`다.
   monitor API는 connected·PRIMARY·2 strategies/2 targets·last error 없음이다.
